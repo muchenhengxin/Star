@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Camofox
+/tmp/camoufox*
+~/Library/Caches/camoufox/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Misc
+*.log
+.env
