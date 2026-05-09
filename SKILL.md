@@ -1,37 +1,39 @@
 ---
 name: star-search
-description: "Use when asked to search the web, find online information, research topics, get news, or look up content. Primary method: Baidu Search via Camofox REST API (free, no captcha). Backup: Baidu Qianfan API (requires BAIDU_API_KEY). Fallback: 360/Shenma browser automation."
-version: 7.0.0
+description: "Use when asked to search the web, find online information, research topics, get news, or look up content. Primary: Sogou+Camofox (10 results, no captcha). Backup: Baidu+Camofox (9 results, random captcha). 360+Camofox (6 results, no captcha). All via Camofox REST API only — NOT Hermes browser tools."
+version: 8.0.0
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [Search, Web, Baidu, 360, Shenma, Camofox, China, Research, Discovery]
+    tags: [Search, Web, Sogou, Baidu, 360, Camofox, China, Research, Discovery]
     related_skills: [arxiv, blogwatcher, session_search]
     references:
       - camofox-api.md  # Quick reference: endpoints, pitfalls, engine comparison
 ---
 
-# Star Search v7 (百度+Camofox可用版)
+# Star Search v8 (搜狗优先 多引擎版)
 
 ## 引擎真实状态（2026-05实测）
 
-| 引擎 | 方式 | 状态 | 成本 | 备注 |
-|------|------|------|------|------|
-| **百度搜索** | 百度千帆API | ✅ 稳定 | 付费有免费额度 | 结果最全、质量最高 |
-|| **百度搜索+Camofox** | Camofox反检测浏览器 | ✅ **2026-05实测成功！9条结果，无验证码，真实URL** | 免费 | 必须用Camofox REST API调用，不能用Hermes browser工具 |
-| **神马搜索** | 浏览器 | ⚠️ 频繁验证码 | 免费 | 需要 Camofox stealth |
-| **360搜索** | 浏览器 | ✅ 可用 | 免费 | h3提取正常，7条结果，但URL是短链接 |
-| **夸克搜索** | 浏览器 | ❌ **不可用** | 免费 | 搜索词被词典功能拦截，跳转翻译页面 |
-| **搜狗搜索** | 浏览器 | ❌ 验证码 | 免费 | 被拦截 |
-| **头条搜索** | API | ❌ 被拒绝 | - | `"shark_decision":"reject"` |
-| **Bing** | 浏览器 | 未充分测试 | 免费 | 302跳转 |
+| 引擎 | 方式 | 结果数 | 验证码 | URL质量 | 成本 | 推荐 |
+|------|------|--------|--------|---------|------|------|
+| **搜狗搜索** | Camoufox REST API | 10条 | 无 | JS跳转链 | 免费 | ✅ **首选主引擎** |
+| **百度搜索** | Camoufox REST API | 9条 | 随机触发 | 真实URL | 免费 | ✅ **备选引擎** |
+| **360搜索** | Camoufox REST API | 6条 | 无 | JS跳转链 | 免费 | ⚠️ **补充覆盖** |
+| **神马搜索** | Camoufox REST API | 0条 | — | — | 免费 | ❌ 不可用 |
+| **Bing中国/国际** | Camoufox REST API | 0条 | — | — | 免费 | ❌ DOM结构不兼容 |
+| **Google/DuckDuckGo/Brave** | Camoufox REST API | 超时 | — | — | 免费 | ❌ 被拦截 |
+| **百度千帆API** | REST API | — | — | — | 付费 | ❌ API Key已失效 |
 
-**关键纠正（2026-05-08实测）：Camofox + 百度搜索 ✅ 成功！9条结果，无验证码，URL是真实可访问的百度跳转链接。但必须通过Camofox REST API直接调用，不能用Hermes browser工具（后者会触发验证码）。**
+### 关键发现（2026-05-09实测）
 
-**百度搜索+Camofox 成功 ✅（2026-05-08修正）：**
-- 用Hermes `browser_navigate` → ❌ 触发验证码（因为Hermes browser工具不是Camofox）
-- 用Camofox REST API直接调用 → ✅ 成功绕过验证码
+1. **搜狗是最稳定主引擎** — 10条结果，零验证码，结果质量高（腾讯云/CSDN/知乎/今日头条）
+2. **百度验证码随机触发** — 长尾具体查询（如"AI API token 转售 市场"）通过，简单词（如"test"）触发
+3. **即使显示验证，Baidu仍返回结果** — 验证码是叠加提示，不代表完全失效
+4. **搜狗/360的JS跳转链URL** — `sogou.com/link?url=xxx` / `so.com/link?m=xxx` 无法通过HTTP直接解析真实地址，但浏览器点击可用
+5. **百度千帆API Key已失效** — `bce-v3/ALTAK-yVyzs...` 返回 `NOT FOUND`，需重新申请
+6. **Camoufox health检查** — `browserConnected=False` 不代表不可用，只要 `ok=true` 即可正常创建tab
 
 **正确工作流（Camofox REST API）：**
 ```bash
@@ -68,43 +70,13 @@ curl http://localhost:9377/health
 
 ## 核心引擎
 
-| 引擎 | URL | 状态 | 成本 | 方式 |
-|------|-----|------|------|------|
-| **百度搜索** | 百度千帆API | ✅ 需API_KEY | 付费 | API调用 |
-| **360搜索** | `https://www.so.com/s?q=QUERY` | ✅ 可用(URL是短链接) | 免费 | 浏览器自动化 |
-| **神马搜索** | `https://www.sm.cn/s?q=QUERY` | ✅ 可用 | 免费 | 浏览器自动化 |
+> **百度千帆API已失效** — API Key `bce-v3/ALTAK-...` 返回 NOT FOUND。v8 改用搜狗+百度+360多引擎方案，不再依赖千帆API。
 
-### 百度搜索 (稳定推荐 - 百度千帆官方API)
-
-**已安装:** `openclaw skills install baidu-search`
-
-**需要:** `BAIDU_API_KEY` (百度智能云千帆平台)
-**申请地址:** https://console.bce.baidu.com/ai-search/qianfan/ais/console/apiKey
-
-**✅ 验证可用的配置:**
-```bash
-source ~/.openclaw/workspace/.env.baidu
-cd /Users/lizhe/.openclaw/workspace
-python3 skills/baidu-search/scripts/baidu_search_api.py "关键词" --count 10 --recency month
-```
-
-**参数说明:**
-| 参数 | 说明 |
-|------|------|
-| `query` | 搜索关键词 |
-| `--count N` | 结果数量 (1-50) |
-| `--recency day/week/month/year` | 时间范围 |
-
-**返回示例:**
-```
-🔍 百度搜索: AI API 转售
-📊 共 9 条结果
-
-1. 这可能是今年最混乱的暴利生意 - 新浪网 2026-05-07
-   摘要: Token中转站的本质,其实是一个全球Token交易的中间商...
-```
-
-**⚠️ 注意:** `scripts/working_search.py` 是模拟版本,不是真正的API调用!
+| 引擎 | URL模板 | 结果数 | 验证码 | URL质量 | 成本 | 方式 |
+|------|---------|--------|--------|---------|------|------|
+| **搜狗搜索** | `https://www.sogou.com/web?query={q}&ie=utf8` | 10条 | 无 | JS跳转链 | 免费 | Camoufox REST API |
+| **百度搜索** | `https://www.baidu.com/s?wd={q}` | 9条 | 随机 | 真实URL | 免费 | Camoufox REST API |
+| **360搜索** | `https://www.so.com/s?q={q}` | 6条 | 无 | JS跳转链 | 免费 | Camoufox REST API |
 
 ### 神马/360/夸克搜索 (不稳定免费方案)
 
@@ -467,20 +439,20 @@ const results360 = await browser_console({expression: `...same pattern...`})
 
 ## ⚠️ 关键陷阱
 
-1. **使用 working_search.py 而不是 baidu_search_api.py**: 前者是模拟版本,返回假数据! 必须用 `scripts/baidu_search_api.py`
-2. **用Hermes browser工具访问百度**: 会触发验证码，必须用Camofox REST API
-3. **360短链接问题**: 360返回的URL是短链接格式（如 `so.com/link?m=...`），无法直接访问，改用百度+Camofox
+1. **用Hermes browser工具访问搜索**: 会触发验证码，必须用Camoufox REST API
+2. **搜狗/360的URL是JS跳转链**: `sogou.com/link?url=xxx` / `so.com/link?m=xxx` 在浏览器点击可正常跳转，Python直接请求无法解析真实地址，这是正常行为，不影响使用
 
 ---
 
 ## 验证清单
 
-- [x] Camofox运行正常（health接口返回ok）
-- [x] 百度+Camofox能正常加载，9条结果
-- [x] 360搜索能正常加载（URL是短链接）
-- [x] 神马搜索能正常加载
-- [x] 百度搜索REST API正常（用baidu_search_api.py）
-- [x] 验证码检测正常工作
+- [x] Camoufox运行正常（health接口返回 `ok=true`，`browserConnected=False` 无妨）
+- [x] 搜狗+Camoufox能正常加载，10条结果，零验证码 ✅ 主引擎
+- [x] 百度+Camoufox能正常加载，9条结果（验证码随机）✅ 备选
+- [x] 360搜索能正常加载，6条结果，零验证码 ✅ 补充
+- [x] 神马搜索：0条结果，不可用
+- [x] Bing/Google/DuckDuckGo/Brave/Naver：超时被拒，不可用
+- [x] search.py v8 多引擎搜索正常（搜狗9+百度8+36011=28条）
 
 ---
 
