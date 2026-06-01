@@ -25,3 +25,4 @@ npm-debug.log*
 # Misc
 *.log
 .env
+scripts/.search_cache.sqlite
