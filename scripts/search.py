@@ -45,6 +45,14 @@ HTTP_BASE_URLS = {
     'toutiao':  'https://cn.bing.com/search?q=site%3Atoutiao.com+{q}&setlang=zh-cn&count=15',
     'zhihu':    'https://cn.bing.com/search?q=site%3Azhihu.com+{q}&setlang=zh-cn&count=15',
     'weixin':   'https://cn.bing.com/search?q=site%3Amp.weixin.qq.com+{q}&setlang=zh-cn&count=15',
+    # v15.1: 7个新增 site:bing 直搜代理（探测后确认有真实结果）
+    'csdn':     'https://cn.bing.com/search?q=site%3Acsdn.net+{q}&setlang=zh-cn&count=15',
+    'cnblogs':  'https://cn.bing.com/search?q=site%3Acnblogs.com+{q}&setlang=zh-cn&count=15',
+    'eastmoney':'https://cn.bing.com/search?q=site%3Aeastmoney.com+{q}&setlang=zh-cn&count=15',
+    'cls':      'https://cn.bing.com/search?q=site%3Acls.cn+{q}&setlang=zh-cn&count=15',
+    'tencent_cloud': 'https://cn.bing.com/search?q=site%3Acloud.tencent.com+{q}&setlang=zh-cn&count=15',
+    'sina_finance':  'https://cn.bing.com/search?q=site%3Afinance.sina.com.cn+{q}&setlang=zh-cn&count=15',
+    'sohu':     'https://cn.bing.com/search?q=site%3Asohu.com+{q}&setlang=zh-cn&count=15',
 }
 
 # ===== Playwright全局单例 =====
@@ -324,6 +332,14 @@ HTTP_PARSERS = {
     'toutiao': _parse_bing_cn,
     'zhihu': _parse_bing_cn,
     'weixin': _parse_bing_cn,
+    # v15.1: 7个新增复用 bing_cn 解析器
+    'csdn': _parse_bing_cn,
+    'cnblogs': _parse_bing_cn,
+    'eastmoney': _parse_bing_cn,
+    'cls': _parse_bing_cn,
+    'tencent_cloud': _parse_bing_cn,
+    'sina_finance': _parse_bing_cn,
+    'sohu': _parse_bing_cn,
 }
 
 async def _search_http(engine, query, session):
@@ -363,6 +379,28 @@ async def _search_http(engine, query, session):
             elif engine == 'weixin':
                 results = [r for r in results if 'weixin' in r.get('url', '').lower() or 'mp.weixin.qq.com' in r.get('url', '').lower()]
                 for r in results: r['engine'] = 'weixin_bing'  # 区分 weixin_pw
+            # v15.1: 7个新增 site: 代理
+            elif engine == 'csdn':
+                results = [r for r in results if 'csdn.net' in r.get('url', '')]
+                for r in results: r['engine'] = 'csdn'
+            elif engine == 'cnblogs':
+                results = [r for r in results if 'cnblogs.com' in r.get('url', '')]
+                for r in results: r['engine'] = 'cnblogs'
+            elif engine == 'eastmoney':
+                results = [r for r in results if 'eastmoney.com' in r.get('url', '')]
+                for r in results: r['engine'] = 'eastmoney'
+            elif engine == 'cls':
+                results = [r for r in results if 'cls.cn' in r.get('url', '')]
+                for r in results: r['engine'] = 'cls'
+            elif engine == 'tencent_cloud':
+                results = [r for r in results if 'cloud.tencent.com' in r.get('url', '')]
+                for r in results: r['engine'] = 'tencent_cloud'
+            elif engine == 'sina_finance':
+                results = [r for r in results if 'sina.com.cn' in r.get('url', '')]
+                for r in results: r['engine'] = 'sina_finance'
+            elif engine == 'sohu':
+                results = [r for r in results if 'sohu.com' in r.get('url', '')]
+                for r in results: r['engine'] = 'sohu'
             print(f'  [{engine}] {len(results)} 条结果', file=sys.stderr)
             return engine, results
     except Exception as e:

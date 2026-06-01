@@ -1,18 +1,30 @@
 ---
 name: star-search
-description: "中文搜索 + 10 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量。10引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信公众号(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 头条/知乎/微信直搜+定时 cron 客户端。目标：赶超百度搜索的免费中文搜索引擎。"
-version: 15.0
+description: "中文搜索 + 17 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量。17引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信+CSDN+博客园+东方财富+财联社+腾讯云开发者+新浪财经+搜狐(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 site:bing 直搜+定时 cron 客户端，v15.1 新增 7 个 site 代理引擎。目标：赶超百度搜索的免费中文搜索引擎。"
+version: 15.1
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental]
+    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu]
     related_skills: [arxiv, blogwatcher, session_search, commercial-opportunity-research, ai-api-relay-station]
 ---
 
-# Star Search v15.0 — 10 引擎直搜 + 定时增量 + OpenAI API + 智能缓存 + 智能去重
+# Star Search v15.1 — 17 引擎直搜 + 定时增量 + OpenAI API + 智能缓存 + 智能去重
 
 ## v12.x/v13.x/v14.x/v15.x 重大升级
+
+### v15.1 — 7 个新 site:bing 直搜代理
+- **csdn**: site:csdn.net — CSDN 技术博客（开发者向）
+- **cnblogs**: site:cnblogs.com — 博客园（开发者向）
+- **eastmoney**: site:eastmoney.com — 东方财富（财经）
+- **cls**: site:cls.cn — 财联社（财经快讯）
+- **tencent_cloud**: site:cloud.tencent.com — 腾讯云开发者（技术）
+- **sina_finance**: site:finance.sina.com.cn — 新浪财经（财经）
+- **sohu**: site:sohu.com — 搜狐（综合）
+- **共 10 个 site: 代理引擎**（v15.1 + v15 头条/知乎/微信）
+- **解析后过滤非目标域** + engine 标签真实
+- **探测方法**：用 v15 _parse_bing_cn 实测 27 个域，7 个返回真实目标域结果
 
 ### v15.0 — 10 引擎直搜 + 定时增量
 - **新增 3 个 site:bing 直搜代理**：`toutiao` (site:toutiao.com) / `zhihu` (site:zhihu.com) / `weixin` (site:mp.weixin.qq.com)
@@ -140,6 +152,13 @@ python3 search.py "华为" --engine bing_cn           # 单引擎：Bing CN
 python3 search.py "华为鸿蒙" --engine toutiao       # v15: 头条
 python3 search.py "Python asyncio" --engine zhihu   # v15: 知乎
 python3 search.py "DeepSeek V4" --engine weixin     # v15: 微信公众号
+python3 search.py "asyncio 教程" --engine csdn      # v15.1: CSDN
+python3 search.py "asyncio 教程" --engine cnblogs   # v15.1: 博客园
+python3 search.py "A股 政策" --engine eastmoney     # v15.1: 东方财富
+python3 search.py "央行 货币政策" --engine cls      # v15.1: 财联社
+python3 search.py "asyncio 教程" --engine tencent_cloud  # v15.1: 腾讯云
+python3 search.py "A股 政策" --engine sina_finance  # v15.1: 新浪财经
+python3 search.py "鸿蒙 PC" --engine sohu           # v15.1: 搜狐
 python3 search.py "A股政策" --mode deep             # deep中文综合
 python3 search.py "英伟达" --mode news              # 新闻模式
 python3 search.py "央行 降息" --mode policy --recency=month
