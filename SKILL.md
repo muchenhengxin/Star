@@ -1,18 +1,26 @@
 ---
 name: star-search
-description: "中文搜索 + Bing CN HTTP直链 + GitHub Issues + 智能缓存 + OpenAI-compatible API。7引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加。目标：赶超百度搜索的免费中文搜索引擎。"
-version: 14.0
+description: "中文搜索 + 10 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量。10引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信公众号(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 头条/知乎/微信直搜+定时 cron 客户端。目标：赶超百度搜索的免费中文搜索引擎。"
+version: 15.0
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI]
+    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental]
     related_skills: [arxiv, blogwatcher, session_search, commercial-opportunity-research, ai-api-relay-station]
 ---
 
-# Star Search v14.0 — OpenAI API 暴露 + 增量追加 + 智能缓存层 + 智能去重
+# Star Search v15.0 — 10 引擎直搜 + 定时增量 + OpenAI API + 智能缓存 + 智能去重
 
-## v12.x/v13.x/v14.x 重大升级
+## v12.x/v13.x/v14.x/v15.x 重大升级
+
+### v15.0 — 10 引擎直搜 + 定时增量
+- **新增 3 个 site:bing 直搜代理**：`toutiao` (site:toutiao.com) / `zhihu` (site:zhihu.com) / `weixin` (site:mp.weixin.qq.com)
+- **免反爬**：3 引擎纯 HTTP 走 cn.bing.com，0 浏览器，<1秒
+- **域过滤**：解析后过滤非目标域名（toutiao=100%头条，zhihu=100%知乎，weixin=100%微信）
+- **engine 标签真实**：解析器内部标 engine='toutiao/zhihu/weixin_bing'，区分 weixin_pw
+- **cron 客户端** `scripts/cron_refresh.py`：异步并发拉多 query，JSONL 输出
+- **Cron job 模板**：30 分钟跑 3 次，自动调 /v1/search/refresh
 
 ### v14.0 — OpenAI-compatible API 暴露 + 增量追加
 - **FastAPI server** `scripts/api_server.py` 启动 `python3 scripts/api_server.py --port 9800`
@@ -58,19 +66,23 @@ metadata:
 开发记录（v12+ 引擎复用 + 去重决策）：
 - `references/v12-engine-addition-recipe.md` — 新 JSON API 引擎三步接入模板（GitHub Issues 类）
 - `references/dedup-merge-decision-log.md` — v12.2 智能去重算法的迭代决策与产品判断
+- `references/v14-api-and-incremental-merge.md` — v14 FastAPI wrapper + force_refresh 增量追加 + Playwright 长进程容错（CLI→API 暴露的通用 pattern）
 
 ## 引擎列表
 
 | 引擎 | 类型 | 权重 | URL类型 | 说明 |
 |------|------|------|---------|------|
-| Bing CN | HTTP (aiohttp) | 85 | 真实直链 | 中文搜索主力，返回官方/新闻/知乎 |
-| **GitHub Issues** | HTTP (aiohttp) | 80 | 真实直链 | **v12.1 新增**，开发者向，issue 级讨论，过滤 bot/PR |
-| 搜狗 HTTP | HTTP (aiohttp) | 95 | 跳转链接 | <1秒，返回高质量中文结果 |
-| 搜狗 (Playwright) | Playwright | 100 | 跳转链接 | 保留用于URL跳转解析和反爬fallback |
+| **Bing CN** | HTTP (aiohttp) | 85 | 真实直链 | 中文搜索主力，新华网/知乎/东方财富 |
+| **GitHub Issues** | HTTP (aiohttp) | 80 | 真实直链 | **v12.1 新增**，issue 级讨论，过滤 bot/PR |
+| **toutiao** | HTTP (site:bing) | 75 | 真实直链 | **v15 头条**，100% toutiao.com 文章 |
+| **zhihu** | HTTP (site:bing) | 75 | 真实直链 | **v15 知乎**，100% zhihu.com 专栏/问答 |
+| **weixin (bing)** | HTTP (site:bing) | 85 | 跳转链接 | **v15 微信公众号**，100% 微信文章 |
+| **搜狗 HTTP** | HTTP (aiohttp) | 95 | 跳转链接 | <1秒，高质量中文结果 |
+| 搜狗 (Playwright) | Playwright | 100 | 跳转链接 | URL 解析 + 反爬 fallback |
 | 百度 | Playwright | 80 | 跳转链接 | 国内引擎 |
 | 360 | Playwright | 60 | 跳转链接 | 国内补充 |
-| 微信(weixin) | Playwright | 85 | 跳转链接 | 搜狗微信 |
-| Bing HTTP | HTTP (aiohttp) | 70 | 真实直链 | 国际版（global模式） |
+| 微信 (weixin_pw) | Playwright | 85 | 跳转链接 | 搜狗微信 |
+| Bing HTTP | HTTP (aiohttp) | 70 | 真实直链 | 国际版 (global 模式) |
 
 ## 模式
 
@@ -125,6 +137,9 @@ python3 search.py "AI大模型"                        # 中文→deep模式
 python3 search.py "asyncio vs threading"             # 英文→global模式
 python3 search.py "FastAPI 异常处理" --mode dev     # 开发者向（GitHub Issues）
 python3 search.py "华为" --engine bing_cn           # 单引擎：Bing CN
+python3 search.py "华为鸿蒙" --engine toutiao       # v15: 头条
+python3 search.py "Python asyncio" --engine zhihu   # v15: 知乎
+python3 search.py "DeepSeek V4" --engine weixin     # v15: 微信公众号
 python3 search.py "A股政策" --mode deep             # deep中文综合
 python3 search.py "英伟达" --mode news              # 新闻模式
 python3 search.py "央行 降息" --mode policy --recency=month
@@ -156,6 +171,23 @@ r = httpx.post('http://127.0.0.1:9800/v1/search', json={
 }).json()
 for item in r['results']:
     print(f"{item['score']:5.1f}  {item['title']}")
+```
+
+### 定时增量模式（v15，subagent 监控）
+
+```bash
+# 单 query 拉一次（JSONL 输出到 stdout）
+python3 scripts/cron_refresh.py --query "华为鸿蒙 PC" --mode dev
+
+# 多 query 并发
+python3 scripts/cron_refresh.py --queries "华为鸿蒙" "DeepSeek V4" --top 5
+
+# 循环（每 1800 秒=30分钟 拉一次）
+python3 scripts/cron_refresh.py --queries "..." --loop 1800
+
+# 配合 cron job 调度（推荐给 subagent）
+hermes cronjob create --schedule "every 30m" --prompt "..." \
+  --skills star-search --name "我的监控"
 ```
 
 ## 故障排查
@@ -194,6 +226,8 @@ search.py (v14.0, Hybrid HTTP + Playwright + 智能去重 + 智能缓存 + API)
 │   └── _cache_stats_report()   — 命中率统计
 ├── 增量追加 v14.0
 │   └── force_refresh=True      — 绕过缓存 + 与历史合并 + refresh=true/false 标记
+├── 定时增量客户端 v15.0
+│   └── cron_refresh.py         — 异步并发拉多 query，JSONL 输出，--loop 循环模式
 ├── OpenAI API v14.0
 │   └── api_server.py           — FastAPI, 5 endpoints
 │       ├── POST /v1/search     — 主搜索

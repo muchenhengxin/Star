@@ -41,6 +41,10 @@ HTTP_BASE_URLS = {
     'bing_cn':  'https://cn.bing.com/search?q={q}&setlang=zh-cn&count=15',
     'bing_http': 'https://www.bing.com/search?q={q}&setlang=en&count=15',
     'github_issues': 'https://api.github.com/search/issues?q={q}+language:zh+archived:false&sort=updated&order=desc&per_page=15',
+    # v15: 3个 site:bing 直搜代理 — 免反爬 <1秒
+    'toutiao':  'https://cn.bing.com/search?q=site%3Atoutiao.com+{q}&setlang=zh-cn&count=15',
+    'zhihu':    'https://cn.bing.com/search?q=site%3Azhihu.com+{q}&setlang=zh-cn&count=15',
+    'weixin':   'https://cn.bing.com/search?q=site%3Amp.weixin.qq.com+{q}&setlang=zh-cn&count=15',
 }
 
 # ===== Playwright全局单例 =====
@@ -316,6 +320,10 @@ HTTP_PARSERS = {
     'bing_cn': _parse_bing_cn,
     'bing_http': _parse_bing_http,
     'github_issues': _parse_github_issues,
+    # v15: site: 代理复用 bing_cn 解析器（HTML 结构相同）
+    'toutiao': _parse_bing_cn,
+    'zhihu': _parse_bing_cn,
+    'weixin': _parse_bing_cn,
 }
 
 async def _search_http(engine, query, session):
@@ -345,6 +353,16 @@ async def _search_http(engine, query, session):
             else:
                 body = await resp.text()
             results = HTTP_PARSERS[engine](body)
+            # v15: site: 代理过滤非目标域名（保证 engine 标签真实）
+            if engine == 'toutiao':
+                results = [r for r in results if 'toutiao.com' in r.get('url', '') or 'toutiao.com' in r.get('domain', '')]
+                for r in results: r['engine'] = 'toutiao'
+            elif engine == 'zhihu':
+                results = [r for r in results if 'zhihu.com' in r.get('url', '') or 'zhihu.com' in r.get('domain', '')]
+                for r in results: r['engine'] = 'zhihu'
+            elif engine == 'weixin':
+                results = [r for r in results if 'weixin' in r.get('url', '').lower() or 'mp.weixin.qq.com' in r.get('url', '').lower()]
+                for r in results: r['engine'] = 'weixin_bing'  # 区分 weixin_pw
             print(f'  [{engine}] {len(results)} 条结果', file=sys.stderr)
             return engine, results
     except Exception as e:
