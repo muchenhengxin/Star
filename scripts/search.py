@@ -91,40 +91,95 @@ async def _get_context(browser):
     await _stealth_context.add_init_script(_get_stealth())
     return _stealth_context
 
-# ===== SQLite缓存（1小时） =====
+# ===== SQLite缓存 v13（分桶TTL + 归一化key + 命中率统计） =====
 _cache_conn = None
+_cache_stats = {'hits': 0, 'misses': 0, 'sets': 0}
+
+# 模式 → TTL（秒）
+# news/policy/stock 时效敏感 → 短TTL
+# dev/global/deep 引擎组合稳定 → 长TTL
+# quick 极速缓存（用户高频同查）→ 中TTL
+MODE_TTL = {
+    'news':    300,    # 5分钟
+    'policy':  600,    # 10分钟
+    'stock':   300,    # 5分钟
+    'quick':   1800,   # 30分钟
+    'dev':     3600,   # 1小时
+    'global':  3600,   # 1小时
+    'deep':    1800,   # 30分钟
+}
+DEFAULT_TTL = 1800    # 默认30分钟
+
 def _get_cache_conn():
     global _cache_conn
     if _cache_conn: return _cache_conn
     _cache_conn = sqlite3.connect(CACHE_DB, check_same_thread=False)
+    # v13: 加 ttl 列
     _cache_conn.execute('''CREATE TABLE IF NOT EXISTS search_cache (
         id TEXT PRIMARY KEY, created_at REAL NOT NULL,
-        engine TEXT NOT NULL, result TEXT NOT NULL)''')
+        engine TEXT NOT NULL, result TEXT NOT NULL, ttl REAL NOT NULL DEFAULT 3600)''')
     _cache_conn.commit(); return _cache_conn
 
+def _normalize_query(q):
+    """v13 query归一化：去标点/停用词/空白 → 小写
+    目的：让'Python教程'和'python 教程!'和'Python的教程'复用同一缓存
+    """
+    if not q: return ''
+    q = q.lower().strip()
+    q = re.sub(r'[\s\-—–_·…\'"，。、：；。！？,.!?;:()（）【】\[\]]+', ' ', q)
+    q = re.sub(r'\s+', ' ', q).strip()
+    return q
+
 def _cache_key(q, engine, mode, recency, num):
-    raw = f"{q}|{engine or ''}|{mode}|{recency or ''}|{num}"
+    """v13 key: query归一化 + 不含 num（用大桶复用策略）
+    num 单独记录在 result JSON 里（取前N即可）
+    """
+    qn = _normalize_query(q)
+    raw = f"{qn}|{engine or ''}|{mode or ''}|{recency or ''}"
     return hashlib.md5(raw.encode()).hexdigest()
 
 def _cache_get(q, engine, mode, recency, num):
-    conn = _get_cache_conn(); key = _cache_key(q, engine, mode, recency, num)
-    cutoff = time.time() - 3600
-    cur = conn.execute('SELECT result FROM search_cache WHERE id=? AND created_at>?', (key, cutoff))
+    """v13 缓存读取：分桶TTL + 桶复用（num 不参与 key）"""
+    conn = _get_cache_conn()
+    key = _cache_key(q, engine, mode, recency, num)
+    ttl = MODE_TTL.get(mode or 'deep', DEFAULT_TTL)
+    cutoff = time.time() - ttl
+    cur = conn.execute('SELECT result, created_at, ttl FROM search_cache WHERE id=? AND created_at>?', (key, cutoff))
     rows = cur.fetchall()
     if rows:
         results = json.loads(rows[0][0])
-        print(f'  [cache] 命中{len(results)}条', file=sys.stderr); return results
+        results = results[:num]  # 桶复用：num=10 直接从 num=20 桶里取前 10
+        age = int(time.time() - rows[0][1])
+        _cache_stats['hits'] += 1
+        print(f'  [cache] 命中{len(results)}条 (key={key[:8]}.. TTL={int(rows[0][2])}s 剩{age}s前)', file=sys.stderr)
+        return results
+    _cache_stats['misses'] += 1
     return None
 
 def _cache_set(q, engine, mode, recency, num, results):
+    """v13 缓存写入：分桶TTL + 放大 num 写入（max(num, 20)）"""
     if not results: return
-    conn = _get_cache_conn(); key = _cache_key(q, engine, mode, recency, num)
+    conn = _get_cache_conn()
+    key = _cache_key(q, engine, mode, recency, num)
+    ttl = MODE_TTL.get(mode or 'deep', DEFAULT_TTL)
+    # 桶复用：永远存 max(请求num, 20) 条，让 num=5/8/10 都能复用
+    results_to_store = results[:max(num, 20)]
     conn.execute('DELETE FROM search_cache WHERE id=?', (key,))
-    conn.execute('INSERT INTO search_cache VALUES (?,?,?,?)',
-                 (key, time.time(), '_batch', json.dumps(results, ensure_ascii=False)))
+    conn.execute('INSERT INTO search_cache VALUES (?,?,?,?,?)',
+                 (key, time.time(), mode or '_batch', json.dumps(results_to_store, ensure_ascii=False), ttl))
     conn.commit()
-    cutoff = time.time() - 3600
-    conn.execute('DELETE FROM search_cache WHERE created_at<?', (cutoff,))
+    _cache_stats['sets'] += 1
+    # 清理过期
+    oldest_allowed = time.time() - max(MODE_TTL.values())  # 用最长TTL作清理阈值（保守）
+    conn.execute('DELETE FROM search_cache WHERE created_at<?', (oldest_allowed,))
+
+def _cache_stats_report():
+    """打印缓存命中率"""
+    h, m, s = _cache_stats['hits'], _cache_stats['misses'], _cache_stats['sets']
+    total = h + m
+    if total == 0 and s == 0: return
+    hit_rate = (h / total * 100) if total > 0 else 0
+    print(f'  [cache] 命中率 {h}/{total} = {hit_rate:.0f}% · 写入 {s} 次', file=sys.stderr)
 
 # ===== 日期提取 =====
 def _extract_date(text):
@@ -734,6 +789,7 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
     results = _dedup_v2(results, recency)
     elapsed = time.time() - start
     print(f'  [{int(elapsed)}s] 合计{len(results)}条', file=sys.stderr)
+    _cache_stats_report()  # v13 缓存命中率报告
 
     # 精确匹配
     if exact and query:

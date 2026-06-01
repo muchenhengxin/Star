@@ -1,65 +1,130 @@
-# Star Search v8.3 — 多引擎中文搜索旗舰版
+# Star Search v13.0 — 智能缓存层 + 智能去重 + GitHub Issues
 
-> **免费替代百度搜索API。三引擎并行搜狗+百度+360，自动去重排序，100%摘要覆盖，真实URL解析。**
+> **免费中文搜索。7 引擎混动，HTTP 引擎 <1秒直出，GitHub Issues 引擎面向开发者，智能去重 + 跨源聚合（⭐ 标记），v13 智能缓存（分桶TTL + query归一化），全面超越百度千帆 API。**
 
-![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue) ![License MIT](https://img.shields.io/badge/license-MIT-green) ![Version 8.3](https://img.shields.io/badge/version-8.3.0-orange)
+![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue) ![License MIT](https://img.shields.io/badge/license-MIT-green) ![Version 13.0](https://img.shields.io/badge/version-13.0-orange) ![Engines 7](https://img.shields.io/badge/engines-7-brightgreen)
 
 ---
 
-## 为什么需要 Star Search？
+## v13.0 核心升级
 
-百度搜索API（Baidu Search API）按量付费，每次搜索调用ChatGPT成本不低。Star Search 通过 Camofox 反检测浏览器实现**免费、多引擎、高质量**的中文搜索，五维指标全面超越百度搜索API。
+| 升级 | 价值 |
+|------|------|
+| **智能缓存 v13** | 分桶TTL（news 5min / dev 1h）+ query 归一化 + 桶复用（num 5/8/10 共享）+ 命中率统计 |
+| **GitHub Issues 引擎** (v12.1) | 开发者向查询直接拿到 issue 级讨论（带 [bug] / [feature-request] 标签），自动过滤 bot 批量 issue |
+| **智能去重** (v12.2) | 主题词 key + Jaccard 双策略合并同事件多转载 |
+| **跨源聚合** (v12.2) | ⭐ 标记可视化跨源验证，cluster_size 字段记录合并条数 |
+| **dev 模式** (v12.1) | 搜狗HTTP + 百度 + GitHub Issues + Bing CN，开发者首选 |
+| **搜狗 HTTP** (v11.2) | 搜狗无需浏览器，0.5-1秒直出 |
 
-| 维度 | Star Search v8.3 | 百度搜索API | 对比 |
+---
+
+## 为什么选 Star Search？
+
+百度千帆 API 按量付费 + 来源偏自媒体。Star Search 通过多引擎混合 + 智能去重实现**免费、高质量、可验证**的中文搜索，三类查询全部超越百度 API。
+
+| 维度 | Star Search v12.2 | 百度千帆 API | 对比 |
 |:----|:----------------|:-----------|:----:|
-| 结果数 | 25-29条/次 | 20条/次 | ✅ **超过** |
-| 来源多样性 | 搜狗+百度+360 | 仅百度 | ✅ **远超** |
-| 摘要覆盖率 | 100%（平均90字） | 稳定20-50字 | ✅ **超过** |
-| 时效性 | 60-100%有日期标记 | 无日期标签 | ✅ **超过** |
-| 稳定性 | 三引擎互为fallback | 单点依赖 | ✅ **超过** |
-| 成本 | **免费** | 按量付费 | ✅ **完全替代** |
-| 速度 | 3.5秒（三引擎含URL解析） | 1-2秒 | ⚠️ 略慢 |
-| 直接URL占比 | 默认解析top 5条 | 100%真实URL | ⚠️ 略差（360补充引擎无法解析） |
+| 引擎数 | **7** (HTTP + Playwright) | 1 (百度) | ✅ **远超** |
+| 官方来源 | **强** (gov.cn / pbc.gov.cn / 新华网) | 弱 (百家号/自媒体) | ✅ **完胜** |
+| 开发者向 | **GitHub Issues 引擎** | 无 | ✅ **独有** |
+| 跨源验证 | ⭐ 标记 + cluster_size | 无 | ✅ **独有** |
+| 速度 | quick 0.5-1s / deep 4-6s | 1-2s | ⚖️ 持平 |
+| 摘要 | 中等 (HTML 解析) | 长 (百字级) | ⚖️ 略弱 |
+| 费用 | **免费** | 按量付费 | ✅ **完全替代** |
+
+**实测对比**（3 类查询 × 2 引擎）：
+
+| 查询类型 | baidu-search | star-search v12.2 | 赢家 |
+|---------|-------------|------------------|------|
+| 政策类（央行 2026 货币政策）| 8条 0官方源，有标题党 | 8条 **4条官方源** | **Star 压倒** |
+| 开发者向（Python asyncio 2026）| 8条 CSDN/聚合站 | 8条 + **2条 GitHub Issues** | **Star 完胜** |
+| 新闻类（DeepSeek V4 Flash 免费）| 7条自媒体为主 | 8条 6条带 ⭐（最新5/28）| **Star 时效优** |
+
+详细对比：`references/vs-baidu-search-comparison.md`
 
 ---
 
 ## 快速开始
 
 ```bash
-# 搜索
-python3 search.py "存储芯片超级周期"
+# 默认查询（中文→deep 模式，5引擎并发）
+python3 scripts/search.py "存储芯片超级周期"
 
-# 指定模式
-python3 search.py "A股半导体" --mode stock
+# 开发者向（搜狗HTTP + 百度 + GitHub Issues + Bing CN）
+python3 scripts/search.py "FastAPI 异步 中间件" --mode dev
 
-# JSON输出（推荐脚本/子代理使用）
-python3 search.py "AI Agent" --mode news --json
+# 极速查询（仅搜狗HTTP，0.5-1秒）
+python3 scripts/search.py "华为" --mode quick
 
-# 列出可用引擎和模式
-python3 search.py --list
+# 单引擎（Bing CN 返回真实直链）
+python3 scripts/search.py "英伟达" --engine bing_cn
+
+# 时效过滤
+python3 scripts/search.py "央行 降息" --mode policy --recency month
+
+# 精确匹配
+python3 scripts/search.py "Python教程" --exact
+
+# JSON 输出（脚本/子代理推荐）
+python3 scripts/search.py "AI Agent" --mode news --json
+
+# 列出所有引擎和模式
+python3 scripts/search.py --list
 ```
 
-**前置依赖：** Camofox 服务运行在 `http://localhost:9377`
-
-```bash
-# 验证Camofox
-curl http://localhost:9377/health
-# ✓ 正常: {"ok":true,"browserConnected":true}
-```
+**前置依赖**：
+- Python 3.8+ + `pip install aiohttp beautifulsoup4 playwright`
+- Playwright 浏览器（仅搜狗/百度/360/微信引擎需要）：`playwright install chromium`
+- 无需 API Key
 
 ---
 
-## 五种搜索模式
+## 7 大引擎
 
-| 模式 | 命令 | 引擎 | 场景 |
-|------|------|------|------|
-| **深度研究** | `--mode deep` | 搜狗+百度+360 | 综合研究，最大覆盖 |
-| **快速查询** | `--mode quick` | 仅搜狗 | 快速验证 |
-| **政策研究** | `--mode policy` | 百度+搜狗(重配权重) | 政策法规 |
-| **新闻追踪** | `--mode news` | 搜狗+百度 | 最新动态 |
-| **股票行情** | `--mode stock` | 搜狗+百度(强权重) | 股票财经 |
+| 引擎 | 类型 | 权重 | URL类型 | 说明 |
+|------|------|------|---------|------|
+| **Bing CN** | HTTP (aiohttp) | 85 | 真实直链 | 中文搜索主力，新华网/知乎/东方财富 |
+| **GitHub Issues** | HTTP (aiohttp) | 80 | 真实直链 | **v12.1 新增**，issue 级讨论，过滤 bot/PR |
+| **搜狗 HTTP** | HTTP (aiohttp) | 95 | 跳转链接 | <1秒，高质量中文结果 |
+| 搜狗 (Playwright) | Playwright | 100 | 跳转链接 | URL 解析 + 反爬 fallback |
+| 百度 | Playwright | 80 | 跳转链接 | 国内引擎 |
+| 360 | Playwright | 60 | 跳转链接 | 国内补充 |
+| 微信 (weixin) | Playwright | 85 | 跳转链接 | 搜狗微信 |
+| Bing HTTP | HTTP (aiohttp) | 70 | 真实直链 | 国际版 (global 模式) |
 
-默认 `auto` 模式根据关键词自动匹配。
+---
+
+## 7 种模式
+
+| 模式 | 引擎组合 | 速度 | 适用场景 |
+|------|---------|------|---------|
+| **deep** (默认) | 搜狗HTTP+百度+360+微信+Bing CN | 4-6秒 | 综合研究，最大覆盖 |
+| **quick** | 搜狗HTTP | 0.5-1秒 | 极速验证 |
+| **dev** | 搜狗HTTP+百度+**GitHub Issues**+Bing CN | 4-6秒 | **v12.1 开发者向** |
+| **news** | 搜狗HTTP+百度+微信+Bing CN | 3-4秒 | 新闻追踪 |
+| **global** | Bing HTTP (纯 HTTP) | 1-2秒 | 英文国际 |
+| **policy** | 百度+搜狗HTTP+Bing CN | 3-4秒 | 政策研究 |
+| **stock** | 搜狗HTTP+百度+微信+Bing CN | 3-4秒 | 财经股票 |
+
+---
+
+## v12.2 智能去重算法
+
+**双策略合并**：
+1. **主题词 key**（精确召回同事件）：归一化标题 → 去停用词 → 取前10字符
+2. **Jaccard bigram**（兜底相似标题）：字符 bigram Jaccard > 0.5
+
+**跨源聚合加成**：
+- `cross_verified = (来源数-1) + (引擎数-1)`，每多一源 +10 分
+- 来源数 ≥3 加 15 分，=2 加 8 分
+- 排序后输出时带 **⭐** 标记表示多源验证
+
+**输出字段**（v12.2 新增）：
+- `cluster_id`：所属簇 ID
+- `cluster_size`：合并了几条原始结果
+- `source_count`：独立来源数
+- `source_engines`：覆盖的引擎列表
 
 ---
 
@@ -68,56 +133,33 @@ curl http://localhost:9377/health
 ```json
 [
   {
-    "title": "存储芯片迎超级周期：全球龙头股价创新高",
-    "url": "https://stock.10jqka.com.cn/20260507/c676512445.shtml",
-    "url_type": "direct",
-    "engine": "sogou",
-    "cross_validated": 2,
-    "date": "2026-05-07",
-    "summary": "机构人士认为，在AI算力需求持续爆发下...存储板块强势行情有望延续。",
-    "score": 183.0,
-    "resolved": true
+    "title": "DeepSeek-V4-Flash登顶全球调用量榜首",
+    "url": "https://weixin.sogou.com/link?url=...",
+    "url_type": "redirect",
+    "engine": "weixin",
+    "cross_verified": 3,
+    "source_count": 3,
+    "source_engines": "bing_cn,sogou,weixin",
+    "cluster_size": 2,
+    "cluster_id": 1,
+    "date": "2026-05-28",
+    "summary": "DeepSeekV4-Flash(轻量版...",
+    "score": 156.0
   }
 ]
 ```
-
-各字段含义：
-- `title` — 结果标题
-- `url` — URL（搜狗短链已自动解析为真实地址）
-- `url_type` — `direct`（可直达）/ `redirect`（跳转链）
-- `engine` — 来源引擎：sogou / baidu / 360
-- `cross_validated` — 被几个引擎同时收录
-- `date` — 发布日期
-- `summary` — 摘要（平均90字）
-- `score` — 综合评分
-- `resolved` — URL是否解析为真实地址
 
 ---
 
 ## 性能基准
 
-| 模式 | 耗时 | 结果数 | 真实URL |
-|------|------|--------|---------|
-| deep（三引擎） | 3.5-4.5秒 | 25-29条 | 前5条 |
-| quick（单搜狗） | 2.5-3.5秒 | 6-7条 | 前2条 |
-| policy | 3-4秒 | 15-20条 | 前5条 |
-| news | 3-4秒 | 15-20条 | 前5条 |
-| stock | 3-4秒 | 15-20条 | 前5条 |
-
----
-
-## v8.3 新特性
-
-| 特性 | 状态 | 说明 |
-|------|------|------|
-| **三引擎并行** | ✅ | 搜狗+百度+360同时搜索，2-3秒返回 |
-| **摘要100%覆盖** | ✅ | v2提取器全区域扫描，平均90字 |
-| **日期提取** | ✅ | 标题内日期解析，60-100%结果有日期 |
-| **交叉验证标记⭐** | ✅ | 多引擎同标题自动标注 |
-| **URL自动解析** | ✅ | 默认解析top搜狗短链为真实URL |
-| **JSON输出分离** | ✅ | info走stderr，结果走stdout，管道无干扰 |
-| **百度验证码自适应** | ✅ | 检测验证码自动跳过 |
-| **5种搜索模式** | ✅ | policy/news/deep/quick/stock + auto |
+| 模式 | 耗时 | 输入→输出 | 真实 URL 占比 |
+|------|------|-----------|--------------|
+| quick | 0.5-1秒 | 1→N | 0%（跳转链） |
+| Bing CN 单引擎 | 1-2秒 | 1→10 | **100%** |
+| deep (5引擎) | 4-6秒 | 25-30→8-10 | ~40% (Bing CN + GitHub) |
+| dev (4引擎) | 4-6秒 | 25-30→8-10 | ~50% (Bing CN + GitHub) |
+| global (Bing HTTP) | 1-2秒 | 1→10 | 100% |
 
 ---
 
@@ -125,40 +167,56 @@ curl http://localhost:9377/health
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
-| 8.3 | 2026-05-10 | **旗舰版**：URL异步解析、摘要100%覆盖、JSON输出分离、验证码自适应 |
-| 8.2 | 2026-05-09 | 标题时间戳、URL短链解析、并行去重、5种模式引擎权重 |
-| 8.1 | 2026-05-09 | 动态权重、时间因子排序、搜索模式预设 |
-| 8.0 | 2026-05-08 | 搜狗+百度+360多引擎并行，智能去重排序 |
+| **13.0** | 2026-06-01 | **智能缓存层**：分桶TTL（news 5min / dev 1h）+ query归一化 + 桶复用（num 5/8/10 共享）+ 命中率统计 |
+| **12.2** | 2026-06-01 | **智能去重 + 跨源聚合**：主题词 key + Jaccard 双策略，⭐ 标记，cluster_size |
+| **12.1** | 2026-06-01 | **GitHub Issues 引擎**：开发者向查询，issue 级讨论，过滤 bot/PR。dev 模式 |
+| 11.2 | 2026-05-28 | 搜狗 HTTP 模式（aiohttp，<1秒），quick 模式 0.5-1秒 |
+| 11.1 | 2026-05-25 | Bing CN HTTP 引擎 — 真实直链，官方源覆盖，3秒内 |
+| 10.x | 2026-05-15 | Playwright + 搜狗/百度/360 多引擎 |
+| 8.3 | 2026-05-10 | 旗舰版：URL 异步解析、摘要 100% 覆盖 |
 
 ---
 
 ## 技术架构
 
 ```
-用户搜索请求 → search.py
-                    ↓
-            ThreadPoolExecutor
-           /        |        \
-      搜狗搜索   百度搜索   360搜索
-      (Camofox) (Camofox) (Camofox)
-           \        |        /
-            ParallelSearch
-                    ↓
-            deduplicate + rank
-            (时间因子 + 交叉验证)
-                    ↓
-            URL解析（后台异步）
-                    ↓
-            stdout输出（文本/JSON）
+search.py (v12.2, Hybrid HTTP + Playwright + 智能去重)
+│
+├── HTTP 引擎 (aiohttp, 无需浏览器)
+│   ├── 搜狗 HTTP  <1秒, 质量高
+│   ├── Bing CN     真实直链, 官方源
+│   ├── GitHub Issues  开发者向, 真实直链
+│   └── Bing HTTP   国际版
+│
+├── Playwright 引擎 (需浏览器, 反爬 fallback)
+│   ├── 搜狗        URL 跳转解析
+│   ├── 百度        国内引擎
+│   ├── 360         国内补充
+│   └── 微信        搜狗微信
+│
+├── 智能去重 v12.2
+│   ├── 主题词 key  +  Jaccard 双策略
+│   ├── 跨源聚合加成
+│   └── ⭐ 可视化标记
+│
+├── 语言感知路由
+│   ├── 中文 → CN_ENGINES (deep/dev/news/policy/stock)
+│   └── 英文 → GLOBAL_ENGINES
+│
+└── 缓存层
+    └── SQLite 1小时, (query + engine + mode) key
 ```
 
 ---
 
 ## 依赖
 
-- Python 3.8+
-- Camofox 服务（`http://localhost:9377`）
-- 无需 API Key
+```
+pip install aiohttp beautifulsoup4 lxml playwright
+playwright install chromium
+```
+
+无需 API Key。
 
 ---
 
