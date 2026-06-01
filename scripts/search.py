@@ -1,1109 +1,800 @@
 #!/usr/bin/env python3
+"""Star Search v11.0 - Hybrid HTTP + Playwright 多引擎搜索
+
+架构：HTTP引擎(aiohttp)不需要浏览器，Playwright引擎保留给反爬严格的国内引擎。
+- HTTP: Google, DuckDuckGo, Bing (国际)
+- Playwright: 搜狗, 百度, 360, 微信
+
+语言感知路由：中文查询优先国内引擎+Google，非中文查询走国际引擎。
 """
-Star Search v8.3 - 旗舰版（五维全通道替代百度搜索）
+import json, re, sys, time, argparse, os, asyncio, sqlite3, hashlib
+from urllib.parse import quote, urlparse
+from datetime import datetime
 
-=== v8.3 五大核心提升 ===
-1. JSON模式分离 —— 输出走stdout，info走stderr，管道解析零干扰
-2. 摘要覆盖率翻倍 —— snapshot全区域提取，60%+结果有摘要
-3. URL真实解析 —— 自动导航短链获取真实URL
-4. 速度突破2秒+Tab预热 —— quick模式平均1.8秒，deep模式2.5秒
-5. 百度验证码智能fallback —— 遇到验证码自动跳过换引擎
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
 
-使用方法:
-    python3 search.py "关键词"
-    python3 search.py "关键词" --engine baidu
-    python3 search.py "关键词" --mode quick
-    python3 search.py "关键词" --mode policy --json
-    python3 search.py "关键词" --list
-"""
+from playwright.async_api import async_playwright
+import aiohttp
 
-import json
-import subprocess
-import re
-import time
-import argparse
-import sys
-import os
-from urllib.parse import quote
-from concurrent.futures import ThreadPoolExecutor, as_completed, wait
-from datetime import datetime, timedelta
+# ===== 配置 =====
+STEALTH_JS = os.path.join(os.path.dirname(__file__), 'stealth.js')
+CACHE_DB = os.path.join(os.path.dirname(__file__), '.search_cache.sqlite')
+USER_AGENT = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+              'AppleWebKit/537.36 (KHTML, like Gecko) '
+              'Chrome/131.0.0.0 Safari/537.36')
+VIEWPORT = {'width': 1920, 'height': 1080}
 
-CAMOUFOX_URL = "http://localhost:9377"
-USER_ID = "star-search"
-PARALLEL_TIMEOUT = 25  # 单引擎超时秒数
-TAB_POOL = {}  # engine_id → tab_id 缓存
-LOG = print  # 别名：内部info输出用LOG（默认走stdout，后面改成stderr）
-
-# ===== ===== P6: 搜索模式预设 ===== =====
-SEARCH_MODES = {
-    "policy": {
-        "desc": "政策查询 — 百度优先，权威来源",
-        "engines": ["baidu", "sogou", "360"],
-        "weight_boost": {"baidu": 50, "sogou": 0, "360": 0},
-    },
-    "news": {
-        "desc": "热点新闻 — 搜狗+百度双引擎",
-        "engines": ["sogou", "baidu"],
-        "weight_boost": {"sogou": 20, "baidu": 20, "360": 0},
-    },
-    "deep": {
-        "desc": "深度研究 — 三引擎全量聚合",
-        "engines": ["sogou", "baidu", "360"],
-        "weight_boost": {"sogou": 0, "baidu": 0, "360": 30},
-    },
-    "quick": {
-        "desc": "快速查询 — 仅搜狗，最快返回",
-        "engines": ["sogou"],
-        "weight_boost": {"sogou": 0, "baidu": 0, "360": 0},
-    },
-    "stock": {
-        "desc": "股票/公司 — 三引擎+额外权重",
-        "engines": ["sogou", "baidu", "360"],
-        "weight_boost": {"sogou": 20, "baidu": 30, "360": 10},
-    },
+# Playwright引擎（反爬严格，需要浏览器）
+PW_BASE_URLS = {
+    'sogou':  'https://www.sogou.com/web?query={q}&ie=utf8',
+    'baidu':  'https://www.baidu.com/s?wd={q}',
+    '360':    'https://www.so.com/s?q={q}',
+    'weixin': 'https://weixin.sogou.com/weixin?type=2&query={q}&ie=utf8',
 }
 
+# HTTP引擎（aiohttp，不需要浏览器）
+HTTP_BASE_URLS = {
+    'sogou':    'https://www.sogou.com/web?query={q}&ie=utf8',
+    'bing_cn':  'https://cn.bing.com/search?q={q}&setlang=zh-cn&count=15',
+    'bing_http': 'https://www.bing.com/search?q={q}&setlang=en&count=15',
+    'github_issues': 'https://api.github.com/search/issues?q={q}+language:zh+archived:false&sort=updated&order=desc&per_page=15',
+}
 
-# 引擎配置（基础权重）
-BASE_ENGINES = [
-    {
-        "id": "sogou",
-        "name": "搜狗搜索",
-        "url_template": "https://www.sogou.com/web?query={q}&ie=utf8",
-        "base_weight": 100,
-    },
-    {
-        "id": "baidu",
-        "name": "百度搜索",
-        "url_template": "https://www.baidu.com/s?wd={q}",
-        "base_weight": 60,
-    },
-    {
-        "id": "360",
-        "name": "360搜索",
-        "url_template": "https://www.so.com/s?q={q}",
-        "base_weight": 40,
-    },
-]
+# ===== Playwright全局单例 =====
+_pw = None; _browser = None; _browser_refcount = 0
 
+async def _ensure_browser():
+    global _pw, _browser, _browser_refcount
+    if _browser and _browser.is_connected():
+        _browser_refcount += 1; return _browser
+    _pw = await async_playwright().start()
+    _browser = await _pw.chromium.launch(headless=True, args=[
+        '--disable-blink-features=AutomationControlled',
+        '--no-sandbox', '--disable-setuid-sandbox',
+        '--disable-infobars', '--window-size=1920,1080'])
+    _browser_refcount = 1; return _browser
 
-# ===== ===== P5: 动态权重 ===== =====
-def get_dynamic_weights(query: str, mode: str = None) -> dict:
-    """根据搜索关键词类型和模式返回动态引擎权重"""
-    weights = {e["id"]: e["base_weight"] for e in BASE_ENGINES}
+async def _release_browser():
+    global _browser_refcount
+    _browser_refcount -= 1
 
-    # 如果指定了mode，先应用mode权重加成
-    if mode and mode in SEARCH_MODES:
-        boosts = SEARCH_MODES[mode]["weight_boost"]
-        for eid, boost in boosts.items():
-            weights[eid] += boost
+async def _cleanup_browser():
+    global _pw, _browser, _browser_refcount
+    if _browser_refcount > 0: return
+    try:
+        if _browser: await _browser.close()
+    except: pass
+    try:
+        if _pw: await _pw.stop()
+    except: pass
+    _browser = _pw = None
 
-    # 关键词特征检测（叠加额外加成）
-    features = {
-        "policy": ["政策", "规划", "办法", "通知", "国务院", "发改委", "央行", "银保监会", "指导意见"],
-        "data": ["M2", "CPI", "GDP", "社融", "增速", "同比", "环比", "数据", "统计", "发布"],
-        "news": ["今日", "最新", "突发", "快讯", "刚刚", "实时"],
-        "stock": ["股票", "股价", "涨停", "跌停", "代码", "A股", "港股", "行情"],
-        "company": ["公司", "集团", "股份", "有限", "财报", "年报", "季报"],
-        "academic": ["研究", "报告", "分析", "框架", "理论", "方法论", "模型"],
-    }
+_stealth_js = None
+def _get_stealth():
+    global _stealth_js
+    if _stealth_js is None:
+        try:
+            with open(STEALTH_JS) as f: _stealth_js = f.read()
+        except: _stealth_js = '/* stealth unavailable */'
+    return _stealth_js
 
-    for category, keywords in features.items():
-        if any(kw in query for kw in keywords):
-            if category in ("policy",):
-                weights["baidu"] += 30  # 政策→百度最权威
-                weights["sogou"] += 10
-            elif category in ("data",):
-                weights["baidu"] += 25  # 数据→百度+搜狗
-                weights["sogou"] += 15
-            elif category in ("news",):
-                weights["sogou"] += 20  # 新闻→搜狗最灵敏
-                weights["360"] += 10
-            elif category in ("stock", "company"):
-                weights["sogou"] += 20
-                weights["baidu"] += 20  # 股票→三引擎都重要
-                weights["360"] += 10
-            elif category in ("academic",):
-                weights["360"] += 20  # 学术→360覆盖面广
-                weights["sogou"] += 10
+_stealth_context = None
+async def _get_context(browser):
+    global _stealth_context
+    if _stealth_context and not _stealth_context.pages: return _stealth_context
+    _stealth_context = await browser.new_context(
+        user_agent=USER_AGENT, viewport=VIEWPORT,
+        locale='zh-CN', timezone_id='Asia/Shanghai')
+    await _stealth_context.add_init_script(_get_stealth())
+    return _stealth_context
 
-    return weights
+# ===== SQLite缓存（1小时） =====
+_cache_conn = None
+def _get_cache_conn():
+    global _cache_conn
+    if _cache_conn: return _cache_conn
+    _cache_conn = sqlite3.connect(CACHE_DB, check_same_thread=False)
+    _cache_conn.execute('''CREATE TABLE IF NOT EXISTS search_cache (
+        id TEXT PRIMARY KEY, created_at REAL NOT NULL,
+        engine TEXT NOT NULL, result TEXT NOT NULL)''')
+    _cache_conn.commit(); return _cache_conn
 
+def _cache_key(q, engine, mode, recency, num):
+    raw = f"{q}|{engine or ''}|{mode}|{recency or ''}|{num}"
+    return hashlib.md5(raw.encode()).hexdigest()
 
-# ===== ===== P0: 标题时间戳提取 ===== =====
-def extract_date_from_title(title: str) -> str:
-    """从标题中提取日期信息"""
-    patterns = [
-        (r'(\d{4})年(\d{1,2})月(\d{1,2})[日号]', 3),
-        (r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', 3),
-        (r'(\d{4})年(\d{1,2})月', 2),
-        (r'(\d{4})年(\d{1,2})[季半年度]', 2),
-        (r'今天.*?(\d{1,2})月(\d{1,2})[日号]', 2),
-    ]
-    for pat, groups in patterns:
-        m = re.search(pat, title)
-        if m:
-            g = m.groups()
-            try:
-                if groups == 3:
-                    return f"{int(g[0]):04d}-{int(g[1]):02d}-{int(g[2]):02d}"
-                elif groups == 2:
-                    y = int(g[0]) if len(g[0]) == 4 else datetime.now().year
-                    return f"{y:04d}-{int(g[1]):02d}"
-            except:
-                continue
-    return ""
+def _cache_get(q, engine, mode, recency, num):
+    conn = _get_cache_conn(); key = _cache_key(q, engine, mode, recency, num)
+    cutoff = time.time() - 3600
+    cur = conn.execute('SELECT result FROM search_cache WHERE id=? AND created_at>?', (key, cutoff))
+    rows = cur.fetchall()
+    if rows:
+        results = json.loads(rows[0][0])
+        print(f'  [cache] 命中{len(results)}条', file=sys.stderr); return results
+    return None
 
+def _cache_set(q, engine, mode, recency, num, results):
+    if not results: return
+    conn = _get_cache_conn(); key = _cache_key(q, engine, mode, recency, num)
+    conn.execute('DELETE FROM search_cache WHERE id=?', (key,))
+    conn.execute('INSERT INTO search_cache VALUES (?,?,?,?)',
+                 (key, time.time(), '_batch', json.dumps(results, ensure_ascii=False)))
+    conn.commit()
+    cutoff = time.time() - 3600
+    conn.execute('DELETE FROM search_cache WHERE created_at<?', (cutoff,))
 
-def normalise_time_str(time_str: str) -> str:
-    """归一化时间字符串"""
-    t = time_str.strip()
-    # 已经是标准日期格式
-    if re.match(r'^\d{4}-\d{2}-\d{2}$', t):
-        return t
-    # ISO带T格式
-    m = re.match(r'^(\d{4}-\d{2}-\d{2})T', t)
-    if m:
-        return m.group(1)
-    # 中文日期
-    m = re.match(r'^(\d{4})年(\d{1,2})月(\d{1,2})日$', t)
-    if m:
-        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
-    m = re.match(r'^(\d{4})年(\d{1,2})月$', t)
-    if m:
-        return f"{int(m.group(1))}-{int(m.group(2)):02d}"
-    # 相对时间 — 转为绝对日期
-    now = datetime.now()
-    m = re.match(r'^(\d+)分钟前$', t)
-    if m:
-        d = now - timedelta(minutes=int(m.group(1)))
-        return d.strftime('%Y-%m-%d')
-    m = re.match(r'^(\d+)小时前$', t)
-    if m:
-        d = now - timedelta(hours=int(m.group(1)))
-        return d.strftime('%Y-%m-%d')
-    m = re.match(r'^(\d+)天前$', t)
-    if m:
-        d = now - timedelta(days=int(m.group(1)))
-        return d.strftime('%Y-%m-%d')
-    if t == '刚刚':
-        return now.strftime('%Y-%m-%d')
-    if t == '昨天':
-        return (now - timedelta(days=1)).strftime('%Y-%m-%d')
-    if t == '前天':
-        return (now - timedelta(days=2)).strftime('%Y-%m-%d')
-    return t
-
-
-def extract_pub_time(snapshot: str, h_start: int, h_end: int) -> str:
-    """
-    从单个搜索结果块的snapshot上下文中提取发布时间。
-    
-    搜狗每个结果块尾部包含:
-      link "来源网 http://url... 时间" [eXX]
-    时间格式: '3天前', '2026-03-27', '刚刚', '2小时前'
-    """
-    ctx = snapshot[h_start:h_end]
-    
-    # 在结果块末尾找 link "... 时间" 模式
-    tail_times = re.findall(
-        r'link "[^"]*?https?://[^"]*\.\.\.\s+([^"]+?)" \[e\d+\]',
-        ctx
-    )
-    for t in tail_times:
-        nt = normalise_time_str(t)
-        if nt:
-            return nt
-    
-    # 兜底：直接从上下文中找标准日期
-    direct = re.findall(r'(\d{4}-\d{2}-\d{2})', ctx)
-    if direct:
-        return direct[-1]
-    
-    return ""
-
-
-# ===== ===== P4 + P1: 摘要提取 v2（全区域扫描策略） ===== =====
-
-def _extract_all_text_lines(region: str) -> list:
-    """
-    从snapshot文本块的region中提取所有有意义的文本行。
-    v2改进：针对搜狗等搜索引擎的snapshot结构优化，
-    text行可能带/不带引号，emphasis夹在text行之间。
-    策略：提取所有text行和emphasis行，按顺序拼接。
-    跳过太短的emphasis（仅关键词标签）。
-    """
-    fragments = []
-    for line in region.split('\n'):
-        line = line.strip()
-        if not line:
-            continue
-        # 跳过无用行
-        if line.startswith('#') or line.startswith('[') or line.startswith('*'):
-            continue
-        if line.startswith('/url:') or line.startswith('link "'):
-            continue
-        if 'heading "' in line and '[level=' in line:
-            continue
-        if re.match(r'^[=\-*>\s]+$', line):
-            continue
-        
-        # text: 行 — 可以带引号或不带
-        m = re.match(r'^- text: "([^"]+)"', line)
-        if m:
-            t = m.group(1).strip()
-            if len(t) >= 4:
-                fragments.append(t)
-            continue
-        m = re.match(r'^- text: ([^"\n]{4,})', line)
-        if m:
-            t = m.group(1).strip()
-            if len(t) >= 4 and '://' not in t:
-                fragments.append(t)
-            continue
-        
-        # emphasis: 行 — 只保留长度>8的（避免"存储芯片"这种关键词标签）
-        m = re.match(r'^- emphasis: ([^"\n]{9,})', line)
-        if m:
-            fragments.append(m.group(1).strip())
-            continue
-    return fragments
-
-
-def _dedup_fragments(fragments: list) -> list:
-    """相邻+语义去重"""
-    if not fragments:
-        return []
-    result = [fragments[0]]
-    for f in fragments[1:]:
-        if f[:20] != result[-1][:20]:
-            result.append(f)
-    return result
-
-
-def _build_summary_v2(fragments: list, title: str = '', max_len: int = 150) -> str:
-    """从片段列表构建摘要，过滤URL/title重复"""
-    parts = []
-    for f in fragments:
-        f = re.sub(r'\s+', ' ', f).strip()
-        # 过滤
-        if f.startswith('http'):
-            continue
-        if re.match(r'^[\d.\-\s%,/]+$', f):
-            continue
-        if title and len(f) >= 10 and len(title) >= 10 and (title[:20] in f or f[:20] in title or f == title):
-            continue
-        # 过滤垃圾片段
-        if any(prefix in f for prefix in ['首页', '摘要:', '关键词:', 'search-icon']):
-            continue
-        if len(f) < 6:
-            continue
-        parts.append(f)
-    
-    if not parts:
-        return ''
-    
-    parts = _dedup_fragments(parts)
-    
-    # 拼接
-    summary = ''
-    for p in parts:
-        if len(summary) + len(p) > max_len:
-            break
-        summary += p
-    
-    # 清理：去掉开头的括号/方括号残余
-    summary = re.sub(r'^[\[（(【][^\]）)】]{0,10}[\]）)】]', '', summary)
-    # 清理被截断的link引用
-    summary = re.sub(r'(cite [^ ]+ http[^ ]+)', '', summary)
-    summary = re.sub(r'^(来源|记者|责编|编辑|作者).*?[：:]\s*', '', summary)
-    # 去掉尾部意外残留
-    summary = re.sub(r'[，。；！？]$', '', summary[:max_len-5] + '。', count=0)
-    summary = summary.strip()
-    
-    if len(summary) < 10:
-        return ''
-    return summary[:max_len].strip()
-
-
-def extract_summary_v2(snapshot: str, title: str, engine: str, h_start: int = None, h_end: int = None) -> str:
-    """
-    v2统一摘要提取器：全区域扫描+多策略提取。
-    与v1不同：不再依赖特定行格式，而是扫描整个region提取所有文字。
-    """
-    if h_start is None or h_end is None:
-        return ''
-    
-    # 主要策略：从heading区域提取
-    primary_region = snapshot[h_start:h_end]
-    primary_frags = _extract_all_text_lines(primary_region)
-    
-    if primary_frags:
-        summary = _build_summary_v2(primary_frags, title)
-        if summary:
-            return summary
-    
-    # 备用策略：从结果块尾部（link行之后）再多取一些
-    link_m = re.search(r'link "[^"]+" \[e\d+\]', primary_region)
-    if link_m:
-        tail = primary_region[h_start + link_m.start():]
-        tail_frags = _extract_all_text_lines(tail)
-        if tail_frags:
-            summary = _build_summary_v2(tail_frags, title)
-            if summary:
-                return summary
-    
-    # 最后兜底：本结果块到下一个结果块之间查找
+# ===== 日期提取 =====
+def _extract_date(text):
+    m = re.search(r'(\d{4})[年/-](\d{1,2})[月/-](\d{1,2})[日号]?', text)
+    if m: return f"{int(m.group(1))}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    m = re.search(r'(\d{4})年(\d{1,2})月', text)
+    if m: return f"{int(m.group(1))}-{int(m.group(2)):02d}"
     return ''
 
-
-def extract_summary_legacy(snapshot: str, title: str, h_start: int = None, h_end: int = None) -> str:
-    """v1旧版：仅text/emphasis行，作为后备"""
-    return ''  # 用v2替代
-
-
-def extract_summary(snapshot: str, title: str, engine: str = "sogou", h_start: int = None, h_end: int = None) -> str:
-    """摘要提取入口：优先v2策略，失败回退v1"""
-    s = extract_summary_v2(snapshot, title, engine, h_start, h_end)
-    return s
-
-
-def create_tab(url: str) -> str:
-    """创建 tab 并导航到 URL"""
-    payload = json.dumps({
-        "userId": USER_ID,
-        "sessionKey": f"search-{int(time.time())}-{hash(url) % 10000}",
-        "url": url
-    })
-    r = subprocess.run(
-        ["curl", "-s", "-X", "POST", f"{CAMOUFOX_URL}/tabs",
-         "-H", "Content-Type: application/json", "-d", payload],
-        capture_output=True, text=True, timeout=15
-    )
-    data = json.loads(r.stdout)
-    if "error" in data:
-        raise Exception(f"Tab creation failed: {data['error']}")
-    return data["tabId"]
-
-
-def get_snapshot(tab_id: str) -> str:
-    """获取页面快照"""
-    r = subprocess.run(
-        ["curl", "-s", f"{CAMOUFOX_URL}/tabs/{tab_id}/snapshot?userId={USER_ID}"],
-        capture_output=True, text=True, timeout=15
-    )
-    data = json.loads(r.stdout)
-    if isinstance(data, dict):
-        return data.get("snapshot", "")
-    return r.stdout
-
-
-def close_tab(tab_id: str):
-    """关闭 tab（释放资源）"""
-    try:
-        subprocess.run(
-            ["curl", "-s", "-X", "DELETE",
-             f"{CAMOUFOX_URL}/tabs/{tab_id}?userId={USER_ID}"],
-            capture_output=True, text=True, timeout=5
-        )
-    except:
-        pass
-
-
-# ===== ===== P2: URL解析增强 ===== =====
-
-def navigate_and_get_url(tab_id: str, url: str) -> str:
-    """
-    利用已有tab导航到URL，从Camofox导航响应中提取重定向后的URL。
-    优化：不等待页面加载完成（导航响应本身已经包含跳转信息）。
-    """
-    try:
-        nav_payload = json.dumps({"userId": USER_ID, "url": url})
-        r = subprocess.run(
-            ["curl", "-s", "-X", "POST",
-             f"{CAMOUFOX_URL}/tabs/{tab_id}/navigate?userId={USER_ID}",
-             "-H", "Content-Type: application/json", "-d", nav_payload],
-            capture_output=True, text=True, timeout=8
-        )
-        data = json.loads(r.stdout)
-        if isinstance(data, dict):
-            final_url = data.get("url", "")
-            if final_url and final_url != url and final_url.startswith('http'):
-                return final_url
-        return url
-    except:
-        return url
-
-
-def resolve_top_results_urls_inplace(results: list, top_n: int = 3) -> list:
-    """
-    对搜索结果中top_N条redirect链接，并行解析为真实URL。
-    P3优化：只解析前top_n条，各自独立tab并行。
-    """
-    redirect_urls = [(i, r) for i, r in enumerate(results[:top_n])
-                     if r.get("url_type") == "redirect" and r.get("url")]
-
-    if not redirect_urls:
-        return results
-
-    # 并行解析URL（每个链接一个独立tab，互不干扰）
-    def _resolve_one(idx, r):
-        tid = None
-        try:
-            tid = create_tab(r["url"])
-            real_url = navigate_and_get_url(tid, r["url"])
-            if real_url and real_url != r["url"]:
-                return idx, real_url
-        except:
-            pass
-        finally:
-            if tid:
-                close_tab(tid)
-        return None
-
-    with ThreadPoolExecutor(max_workers=min(len(redirect_urls), 3)) as ex:
-        futures = {ex.submit(_resolve_one, idx, r): idx for idx, r in redirect_urls}
-        for fut in as_completed(futures):
-            try:
-                result = fut.result(timeout=5)
-                if result:
-                    idx, real_url = result
-                    results[idx]["real_url"] = real_url
-                    results[idx]["url"] = real_url
-                    results[idx]["url_type"] = "direct"
-            except:
-                pass
-
-    resolved = sum(1 for r in results[:top_n] if r.get("url_type") == "direct")
-    if resolved > 0:
-        log_info(f"  [URL解析] 已解析 {resolved}/{len(redirect_urls)} 条链接为真实URL")
-    return results
-
-
-def resolve_urls_async(results: list, top_n: int = 5) -> list:
-    """
-    P3-C: 异步URL解析。不阻塞主流程。
-    在所有结果上加resolving标记，然后启动后台线程解析前top_n条跳转链。
-    在5秒超时内完成解析的结果直接更新；超时的保留redirect状态。
-    """
-    redirect_urls = [(i, r) for i, r in enumerate(results[:top_n])
-                     if r.get("url_type") == "redirect" and r.get("url")]
-    
-    if not redirect_urls:
-        return results
-    
-    # 加标记
-    for _, r in redirect_urls:
-        r["resolving"] = True
-    
-    # 串行导航：复用同一个tab，逐个导航到短链URL
-    # 比每个URL独立创建/关闭tab节省create_tab/close_tab开销
-    # 利用navigate_and_get_url从导航响应直接获取最终URL（不等待页面加载）
-    tab_id = None
-    try:
-        tab_id = create_tab("https://www.sogou.com")
-        for idx, r in redirect_urls:
-            try:
-                real_url = navigate_and_get_url(tab_id, r["url"])
-                if real_url and real_url != r["url"]:
-                    results[idx]["real_url"] = real_url
-                    results[idx]["url"] = real_url
-                    results[idx]["url_type"] = "direct"
-                    results[idx]["resolving"] = False
-            except:
-                results[idx]["resolving"] = False
-    except Exception as e:
-        log_info(f"  [URL解析] tab创建失败: {str(e)[:40]}")
-    finally:
-        if tab_id:
-            try:
-                close_tab(tab_id)
-            except:
-                pass
-    
-    log_info(f"  [URL解析] 完成")
-    # 清除resolving标记
-    for _, r in redirect_urls:
-        if r.get("resolving"):
-            r["resolving"] = False
-    
-    resolved = sum(1 for _, r in redirect_urls if r.get("url_type") == "direct")
-    if resolved:
-        log_info(f"  [URL解析] 已解析 {resolved}/{len(redirect_urls)} 条")
-    else:
-        log_info(f"  [URL解析] 未能解析，保持原始跳转链")
-    
-    return results
-
-
-def resolve_sogou_urls(snapshot: str, heading_title: str, heading_start: int, heading_end: int) -> dict:
-    """
-    P1: 从搜索结果周围的snapshot上下文中提取真实URL
-    
-    策略：搜狗搜索结果页的snapshot中，有些聚合结果（微信号/腾讯新闻/百科）
-    会暴露真实URL。常规网页结果只有搜狗短链，但短链在浏览器中点击会通过JS跳转。
-    
-    这个函数做两件事：
-    1. 从heading上下文提取可用的真实URL（如果有的话）
-    2. 标记URL类型：direct（可直接用）/ redirect（需要跳转）/ sourced（聚合来源）
-    """
-    context = snapshot[heading_start:heading_end]
-    
-    # 找这个heading周围的所有URL
-    urls = re.findall(r'/url: ([^\s"\\)\]]+)', context)
-    
-    # 过滤：排除javascript、搜狗自身、搜狗短链
-    real_urls = []
-    source_urls = []
-    for u in urls:
-        if u.startswith('javascript') or u.startswith('#'):
-            continue
-        # 搜狗短链
-        if u.startswith('/link?url='):
-            # 这是JS跳转链
-            pass
-        # 搜狗聚合来源（腾讯新闻/微信号/百科等）
-        elif 'sogou' in u.lower():
-            source_urls.append(u)
-        # 真实外部URL
-        elif u.startswith('http'):
-            real_urls.append(u)
-    
-    # 结果判断
-    if real_urls:
-        # 有真实URL → 直接使用
-        return {"url": real_urls[0], "url_type": "direct"}
-    elif source_urls:
-        # 有搜狗聚合来源 → 标记为聚合结果
-        return {"url": source_urls[0], "url_type": "sourced"}
-    else:
-        # 只有搜狗短链 → 标记为需要跳转
-        return {"url": None, "url_type": "redirect"}
-
-
-def extract_sogou(snapshot: str) -> list:
-    """提取搜狗搜索结果"""
-    results = []
-    # 先找到所有heading level=3的位置
-    headings = list(re.finditer(r'heading "([^"]+)" \[level=3\]:', snapshot))
-    for i, m in enumerate(headings):
-        title = m.group(1).strip()
-        if len(title) <= 5:
-            continue
-        
-        # 确定这个heading的结束位置（下一个heading开始或页面结束）
-        h_start = m.start()
-        if i + 1 < len(headings):
-            h_end = headings[i+1].start()
-        else:
-            h_end = h_start + 500
-        
-        # 获取可能的真实URL
-        resolution = resolve_sogou_urls(snapshot, title, h_start, h_end)
-        
-        # 默认URL：搜狗短链
-        shortlink_match = re.search(r'/link\?url=([^\s\"\\]+)', snapshot[h_start:h_end])
-        default_url = f"https://www.sogou.com/link?url={shortlink_match.group(1)}" if shortlink_match else ""
-        
-        if not default_url:
-            continue
-        
-        # 优先使用真实URL
-        if resolution["url"]:
-            display_url = resolution["url"]
-            url_type = resolution["url_type"]
-        else:
-            display_url = default_url
-            url_type = "redirect"
-        
-        summary = extract_summary(snapshot, title, "sogou", h_start, h_end)
-        pub_time = extract_pub_time(snapshot, h_start, h_end) or extract_date_from_title(title)
-        results.append({
-            "title": title,
-            "url": display_url,
-            "real_url": default_url if url_type == "redirect" else display_url,
-            "url_type": url_type,
-            "engine": "sogou",
-            "date": pub_time,
-            "summary": summary,
-        })
-    return results
-
-
-def extract_baidu(snapshot: str) -> list:
-    """提取百度搜索结果"""
-    results = []
-    headings = list(re.finditer(r'heading "([^"]+)" \[level=3\]:', snapshot))
-    for i, m in enumerate(headings):
-        title = m.group(1).strip()
-        if len(title) <= 5:
-            continue
-        h_start = m.start()
-        h_end = headings[i+1].start() if i+1 < len(headings) else h_start + 400
-        # 提取URL
-        url_m = re.search(r'/url: (http://www\.baidu\.com/link\?url=[^\s\\]+)', snapshot[h_start:h_end])
-        if not url_m:
-            continue
-        url = url_m.group(1)
-        summary = extract_summary(snapshot, title, "baidu", h_start, h_end)
-        results.append({
-            "title": title,
-            "url": url,
-            "real_url": url,
-            "url_type": "redirect",
-            "engine": "baidu",
-            "date": extract_date_from_title(title),
-            "summary": summary,
-        })
-    return results
-
-
-def extract_360(snapshot: str) -> list:
-    """提取360搜索结果"""
-    results = []
-    headings = list(re.finditer(r'heading "([^"]+)" \[level=3\]:', snapshot))
-    for i, m in enumerate(headings):
-        title = m.group(1).strip()
-        if len(title) <= 5:
-            continue
-        h_start = m.start()
-        h_end = headings[i+1].start() if i+1 < len(headings) else h_start + 400
-        # 提取URL
-        url_m = re.search(r'/url: (https?://[^\s\\]+so\.com[^\s\\]+|/[^\s\\]+)', snapshot[h_start:h_end])
-        if not url_m:
-            continue
-        url = url_m.group(1)
-        if url.startswith('/'):
-            url = f"https://www.so.com{url}"
-        summary = extract_summary(snapshot, title, "360", h_start, h_end)
-        results.append({
-            "title": title,
-            "url": url,
-            "real_url": url,
-            "url_type": "redirect",
-            "engine": "360",
-            "date": extract_date_from_title(title),
-            "summary": summary,
-        })
-    return results
-
-
-EXTRACTORS = {
-    "sogou": extract_sogou,
-    "baidu": extract_baidu,
-    "360": extract_360,
+# ===== 结果分类 =====
+CATEGORIES = {
+    'baike.baidu.com':'📖百科','zh.wikipedia.org':'📖百科','wikipedia.org':'📖百科','baike.sogou.com':'📖百科',
+    'apple.com':'🏢官方','google.com':'🏢官方','microsoft.com':'🏢官方',
+    'gov.cn':'🏛️政府','edu.cn':'🏫教育',
+    'zhidao.baidu.com':'💬问答','zhihu.com':'💬问答','quora.com':'💬问答','stackoverflow.com':'💻代码',
+    'github.com':'💻代码','gitlab.com':'💻代码','pypi.org':'💻代码',
+    'blog.csdn.net':'✍️博客','cnblogs.com':'✍️博客','medium.com':'✍️博客',
+    'sina.com.cn':'📰新闻','sohu.com':'📰新闻','163.com':'📰新闻','qq.com':'📰新闻','thepaper.cn':'📰新闻',
+    'xinhuanet.com':'📰新闻','people.com.cn':'📰新闻',
+    'bilibili.com':'🎬视频','youtube.com':'🎬视频',
+    'mp.weixin.qq.com':'💬社交','weixin.qq.com':'💬社交','weibo.com':'💬社交',
+    'arxiv.org':'🎓学术','scholar.google.com':'🎓学术',
 }
 
+def _classify(r):
+    url = r.get('url','').lower()
+    for dom, cat in sorted(CATEGORIES.items(), key=lambda x:-len(x[0])):
+        if dom in url: r['category']=cat; return cat
+    t = r.get('title','')
+    if '百科' in t: r['category']='📖百科';return '📖百科'
+    if '官网' in t: r['category']='🏢官方';return '🏢官方'
+    if '知乎' in t: r['category']='💬问答';return '💬问答'
+    if 'GitHub' in t: r['category']='💻代码';return '💻代码'
+    if '新闻' in t: r['category']='📰新闻';return '📰新闻'
+    r['category']='🔗网页';return '🔗网页'
 
-# ===== ===== P3: 速度优化 ===== =====
+# ===== 摘要清洗 =====
+_NAV_PAT = re.compile(r'[-‒–—]{3,}\s*(相关\w*|推荐|热点|阅读|资讯|链接|文章|新闻|话题|导航|标签)|<[^>]+>')
+def _clean_summary(text, title=''):
+    if not text: return ''
+    text = re.sub(r'<[^>]+>',' ',text).replace('\xa0',' ').replace('\u200b','')
+    text = _NAV_PAT.sub('',text)
+    if title and len(title)>5:
+        tc = re.sub(r'[\s\-—–_"\']','',title)[:20].lower()
+        tx = re.sub(r'[\s\-—–_"\']','',text)[:len(tc)].lower()
+        if tx.startswith(tc): text=text[len(title):]
+        sep = re.search(r'[——\-]{2,}\s*',text)
+        if sep and sep.end()<len(text)*0.4: text=text[sep.end():]
+    text = re.sub(r'\s+',' ',text).strip()
+    return text[:200] if len(text)>200 else text
 
-# 全局hot tab（预热用，减少create_tab成本）
-HOT_TAB = None  # (engine_id, tab_id, expiry_time)
-HOT_TAB_TTL = 30  # 预热tab30秒不使用自动过期
+# ===== HTTP引擎解析器 =====
+def _parse_bing_http(html, engine='bing_http'):
+    """解析Bing搜索结果（HTTP模式，国际版）"""
+    results=[]
+    if not BeautifulSoup: return results
+    soup=BeautifulSoup(html,'lxml')
+    for block in soup.select('li.b_algo, div.b_algo')[:15]:
+        a=block.select_one('h2 a, h3 a')
+        if not a: continue
+        title=_clean_summary(a.get_text(strip=True))
+        if len(title)<3: continue
+        href=a.get('href','')
+        if not href.startswith('http'): continue
+        summary=''
+        for sel in ['p.b_paratext','div.b_paractx','span.b_paractx']:
+            s=block.select_one(sel)
+            if s:
+                raw=s.get_text()
+                if len(raw.strip())>10: summary=_clean_summary(raw,title); break
+        if not summary or len(summary)<10:
+            texts=[t.strip() for t in block.find_all(string=True,recursive=True) if len(t.strip())>20
+                   and t.strip()!=title and not t.strip().startswith('http')]
+            for t in texts[:2]:
+                cleaned=_clean_summary(t,title)
+                if len(cleaned)>10: summary=cleaned; break
+        date=_extract_date(title) or _extract_date(summary)
+        r=dict(title=title,url=href,summary=summary,date=date,engine=engine,url_type='direct')
+        _classify(r); results.append(r)
+    return results
 
+def _parse_bing_cn(html):
+    """解析Bing中国版搜索结果"""
+    return _parse_bing_http(html, engine='bing_cn')
 
-def ensure_hot_tab() -> str:
-    """确保有一个预热tab可用，用于快速复用"""
-    global HOT_TAB
-    now = time.time()
-    if HOT_TAB is not None:
-        eid, tid, expiry = HOT_TAB
-        if now < expiry:
-            return tid
-        # 过期了，关闭
-        try:
-            close_tab(tid)
-        except:
-            pass
-        HOT_TAB = None
-    # 创建新的预热tab
+def _parse_github_issues(html_or_json, engine='github_issues'):
+    """解析GitHub Issues搜索结果（JSON API）
+
+    GitHub API返回JSON，包含issue/PR混合结果。优先issue，过滤bot批量issue（Renovate等）。
+    """
+    import json as _json
+    results = []
     try:
-        # 用一个简单页面作为hot tab（about:blank被Camofox拦截）
-        tab_id = create_tab("https://www.sogou.com/robots.txt")
-        HOT_TAB = ("sogou", tab_id, now + HOT_TAB_TTL)
-        return tab_id
-    except:
-        return None
+        data = _json.loads(html_or_json)
+    except Exception:
+        return results
+    items = (data.get('items') or [])[:15]
+    bot_logins = {'renovate[bot]','dependabot[bot]','github-actions[bot]','codecov[bot]','sonarcloud[bot]'}
+    for it in items:
+        user = (it.get('user') or {}).get('login','')
+        # 过滤bot批量issue + PR（PR不算"问题讨论"）
+        if user in bot_logins: continue
+        if it.get('pull_request'): continue
+        title = (it.get('title') or '').strip()
+        if len(title) < 3: continue
+        url = it.get('html_url') or ''
+        if not url: continue
+        # 摘要：body 截断 + repo 上下文
+        body = (it.get('body') or '').strip()
+        body = re.sub(r'<!--.*?-->', '', body, flags=re.S)
+        body = re.sub(r'\[!\[.*?\]\(.*?\)\]\(.*?\)', '', body)
+        body = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', body)
+        body = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', body)
+        body = re.sub(r'#+ ', '', body)
+        body = re.sub(r'\s+', ' ', body).strip()
+        repo = (it.get('repository_url') or '').rsplit('/', 1)[-1] or ''
+        state = it.get('state', '')
+        comments = it.get('comments', 0)
+        summary = body[:200] if body else f"[{repo}] {state} · {comments} 评论"
+        # 日期：updated_at
+        date = (it.get('updated_at') or '')[:10]
+        labels = [l.get('name','') for l in (it.get('labels') or [])][:3]
+        if labels: summary = f"[{','.join(labels)}] {summary}" if summary else f"[{','.join(labels)}]"
+        r = dict(
+            title=f"[{repo}] {title}" if repo else title,
+            url=url, summary=summary, date=date,
+            engine=engine, url_type='direct')
+        _classify(r)
+        results.append(r)
+    return results
 
+# ===== HTTP引擎搜索 =====
+HTTP_PARSERS = {
+    'bing_cn': _parse_bing_cn,
+    'bing_http': _parse_bing_http,
+    'github_issues': _parse_github_issues,
+}
 
-def wait_for_snapshot(tab_id: str, max_wait: float = 8.0, min_wait: float = 0.5, poll_interval: float = 0.3) -> str:
-    """轮询等待页面渲染完成，检测到 heading≥3 则提前返回（P3优化：降低初始等待从1.5→0.5秒）"""
-    time.sleep(min_wait)
-    deadline = time.time() + max_wait
-    last_count = 0
-    while time.time() < deadline:
-        snap = get_snapshot(tab_id)
-        headings = re.findall(r'heading "[^"]+" \[level=3\]', snap)
-        if len(headings) >= 3:
-            return snap
-        if len(headings) > last_count:
-            last_count = len(headings)
-        time.sleep(poll_interval)
-    return get_snapshot(tab_id)
-
-
-def search_engine(engine_id: str, query: str, tab_id: str = None, use_hot_tab: bool = False) -> list:
-    """搜索单个引擎，返回结果列表。可传入已有tab_id复用（tab池）"""
-    engine_cfg = next(e for e in BASE_ENGINES if e["id"] == engine_id)
-    q_encoded = quote(query)
-    own_tab = tab_id is None
-    engine_name = engine_cfg["name"]
-
+async def _search_http(engine, query, session):
+    """单个HTTP引擎搜索（aiohttp，快速直链）"""
+    url = HTTP_BASE_URLS[engine].format(q=quote(query))
+    # GitHub API需要专属请求头（Accept版本 + UA）
+    if engine == 'github_issues':
+        headers = {
+            'User-Agent': USER_AGENT,
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8',
+        }
+    else:
+        headers = {
+            'User-Agent': USER_AGENT,
+            'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8',
+        }
     try:
-        if tab_id is None:
-            # P3：简单策略——第一个引擎尝试hot tab，但所有引擎都自己创建tab（串行hot tab有竞态问题）
-            tab_id = create_tab(engine_cfg["url_template"].format(q=q_encoded))
-        else:
-            # 复用tab：导航到同一引擎的新URL
-            nav_url = engine_cfg["url_template"].format(q=q_encoded)
-            nav_payload = json.dumps({
-                "userId": USER_ID,
-                "url": nav_url,
-            })
-            subprocess.run(
-                ["curl", "-s", "-X", "POST",
-                 f"{CAMOUFOX_URL}/tabs/{tab_id}/navigate?userId={USER_ID}",
-                 "-H", "Content-Type: application/json", "-d", nav_payload],
-                capture_output=True, text=True, timeout=10
-            )
-        
-        snapshot = wait_for_snapshot(tab_id)
-        extractor = EXTRACTORS[engine_id]
-        results = extractor(snapshot)
-
-        # ===== P4: 百度验证码检测+fallback =====
-        if engine_id == "baidu" and len(results) == 0:
-            # 可能触发了验证码，检查snapshot
-            if '验证码' in snapshot or 'captcha' in snapshot.lower():
-                log_info(f"  [{engine_name}] 触发验证码，结果不可用")
-                # 不给结果，让parallel_search跳过这个引擎
-                if own_tab:
-                    close_tab(tab_id)
-                return []
-        
-        # 结果过少（<3条）也可能是验证码导致标题截断
-        if engine_id == "baidu" and len(results) < 3:
-            # 检查标题是否有截断标记
-            truncated_count = sum(1 for r in results if r["title"].endswith("..."))
-            if truncated_count > len(results) * 0.5:
-                log_info(f"  [{engine_name}] 超过50%标题截断，可能受验证码影响，降权处理")
-                if own_tab:
-                    close_tab(tab_id)
-                return []  # 直接跳过
-
-        # 引擎内去重（同一引擎内标题去重）
-        seen = set()
-        deduped = []
-        for r in results:
-            key = r["title"][:30]
-            if key not in seen:
-                seen.add(key)
-                deduped.append(r)
-
-        if own_tab:
-            close_tab(tab_id)
-        
-        return deduped
-
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15),
+                               headers=headers) as resp:
+            if resp.status != 200:
+                print(f'  [{engine}] HTTP {resp.status}', file=sys.stderr); return engine, []
+            # GitHub API返回JSON，其他引擎返回HTML
+            if engine == 'github_issues':
+                body = await resp.text()
+            else:
+                body = await resp.text()
+            results = HTTP_PARSERS[engine](body)
+            print(f'  [{engine}] {len(results)} 条结果', file=sys.stderr)
+            return engine, results
     except Exception as e:
-        if own_tab and tab_id:
-            close_tab(tab_id)
-        log_info(f"  [{engine_name}] 出错: {str(e)[:60]}")
-        return []
+        print(f'  [{engine}] 错误: {type(e).__name__}', file=sys.stderr); return engine, []
 
+# ===== Playwright引擎搜索（保留v10.x的解析器） =====
+def _parse_sogou(html):
+    results=[]
+    if not BeautifulSoup: return results
+    soup=BeautifulSoup(html,'lxml')
+    for block in soup.select('div.vrwrap')[:15]:
+        el=block.select_one('h3.vr-title a, h3 a')
+        if not el: continue
+        title=_clean_summary(el.get_text(strip=True))
+        if len(title)<3: continue
+        href=el.get('href','')
+        if href and not href.startswith('http'): href='https://www.sogou.com'+href
+        summary=''
+        for sel in ['p.str-info','div.str-text','div.str_text','div.star-wiki']:
+            s=block.select_one(sel)
+            if s:
+                raw=s.get_text()
+                if len(raw.strip())>10: summary=_clean_summary(raw,title); break
+        date=_extract_date(title) or _extract_date(summary)
+        url_type='redirect' if any(x in href for x in ['sogou.com/link','src=11','sogoucdn.com']) else 'direct'
+        r=dict(title=title,url=href,summary=summary or '',date=date,engine='sogou',url_type=url_type)
+        _classify(r); results.append(r)
+    return results
 
-# ===== ===== P3: 去重+智能排序 ===== =====
-def deduplicate_and_rank(results: list, weights: dict) -> list:
-    """跨引擎去重，按权重+交叉验证数综合排序，标记多引擎收录"""
-    seen = {}
-    for r in results:
-        key = r["title"][:30]
-        if key not in seen:
-            seen[key] = {
-                "title": r["title"],
-                "url": r["url"],
-                "url_type": r.get("url_type", "redirect"),
-                "real_url": r.get("real_url", r["url"]),
-                "date": r.get("date", ""),
-                "summary": r.get("summary", ""),
-                "engines": [r["engine"]],
-                "engine_weight": weights.get(r["engine"], 50),
-                "best_source": r["engine"],
-            }
-        else:
-            # 同一结果被多个引擎收录 → 交叉验证加分
-            if r["engine"] not in seen[key]["engines"]:
-                seen[key]["engines"].append(r["engine"])
-                seen[key]["engine_weight"] += weights.get(r["engine"], 50) / 2
-            # 优先保留有真实URL的结果
-            if r.get("url_type") == "direct" and seen[key]["url_type"] != "direct":
-                seen[key]["url"] = r["url"]
-                seen[key]["url_type"] = "direct"
-                seen[key]["real_url"] = r.get("real_url", r["url"])
-            # 优先保留有摘要的结果
-            if r.get("summary") and not seen[key]["summary"]:
-                seen[key]["summary"] = r["summary"]
-            # 优先保留有时间的结果
-            if r.get("date") and not seen[key]["date"]:
-                seen[key]["date"] = r["date"]
+def _parse_baidu(html):
+    results=[]
+    if not BeautifulSoup: return results
+    soup=BeautifulSoup(html,'lxml')
+    for a in soup.select('h3.t a')[:15]:
+        title=_clean_summary(a.get_text(strip=True))
+        if len(title)<3: continue
+        href=a.get('href','')
+        if href and not href.startswith('http'): href='https://www.baidu.com'+href
+        parent=a.find_parent() or a.parent
+        summary=''
+        for sel in ['span.c-abstract','div.c-abstract','div.c-span-last']:
+            s=parent.select_one(sel)
+            if s:
+                raw=s.get_text()
+                if len(raw.strip())>5:
+                    summary=_clean_summary(raw,title)
+                    if len(summary)>10: break
+        if not summary or len(summary)<10:
+            texts=sorted([t.strip() for t in parent.find_all(string=True,recursive=True)
+                         if t.strip() and len(t.strip())>15 and '{' not in str(t)
+                         and str(t).strip()!=title and not str(t).strip().startswith('http')],
+                        key=len,reverse=True)
+            for t in texts[:3]:
+                cleaned=_clean_summary(str(t),title)
+                if len(cleaned)>10: summary=cleaned; break
+        date=_extract_date(title) or _extract_date(summary)
+        baidu_rp=['baidu.com/link','baidu.com/baidu.php','baidu.com/bbox','baidu.com/c?url','baidu.com/redirect']
+        url_type='redirect' if any(p in href.lower() for p in baidu_rp) else 'direct'
+        r=dict(title=title,url=href,summary=summary or '',date=date,engine='baidu',url_type=url_type)
+        _classify(r); results.append(r)
+    return results
 
-    final = []
-    for key, item in seen.items():
-        cv = len(item["engines"])
-        # ⭐ 标记：被多个引擎交叉验证
-        if cv > 1:
-            item["title"] = f"⭐{item['title']}"
-        item["cross_validated"] = cv
-        # 最终得分 = 引擎权重 × 交叉验证倍数
-        item["score"] = item["engine_weight"] * (1 + 0.3 * (cv - 1))
-        final.append(item)
+def _parse_360(html):
+    results=[]
+    if not BeautifulSoup: return results
+    soup=BeautifulSoup(html,'lxml')
+    for block in soup.select('li.res-list, div.res-list, div.result')[:15]:
+        a=block.select_one('h3 a, a')
+        if not a: continue
+        title=_clean_summary(a.get_text(strip=True))
+        if len(title)<3: continue
+        href=a.get('href','')
+        if href and not href.startswith('http'): href='https://www.so.com'+href
+        summary=''
+        for sel in ['p.str-text','div.str-text','p.des']:
+            s=block.select_one(sel)
+            if s:
+                raw=s.get_text()
+                if len(raw.strip())>5: summary=_clean_summary(raw,title)
+                if len(summary)>10: break
+        if not summary or len(summary)<10:
+            texts=sorted([t.strip() for t in block.find_all(string=True,recursive=True)
+                         if t.strip() and len(t.strip())>15 and '{' not in str(t)
+                         and str(t).strip()!=title and not str(t).strip().startswith('http')],
+                        key=len,reverse=True)
+            for t in texts[:3]:
+                cleaned=_clean_summary(str(t),title)
+                if len(cleaned)>10: summary=cleaned; break
+        date=_extract_date(title)
+        url_type='redirect' if 'so.com/link' in href else 'direct'
+        r=dict(title=title,url=href,summary=summary or '',date=date,engine='360',url_type=url_type)
+        _classify(r); results.append(r)
+    return results
 
-    # ===== ===== P3+: 时间因子 ===== =====
-    def time_boost(item: dict) -> float:
-        """根据发布时间给结果加分，最新的排最前"""
-        date_str = item.get("date", "")
-        if not date_str:
-            return 0.0
-        # 相对时间加分
-        m = re.match(r'^(\d+)分钟前$', date_str)
-        if m:
-            return 30.0  # 几分钟前 → 极高时效
-        m = re.match(r'^(\d+)小时前$', date_str)
-        if m:
-            mins = int(m.group(1)) * 60
-            return max(0, 25 - mins * 0.1)  # 1小时→24.9, 24小时→1
-        m = re.match(r'^(\d+)天前$', date_str)
-        if m:
-            days = int(m.group(1))
-            return max(0, 20 - days * 2)  # 1天→18, 7天→6, 10天→0
-        if date_str == '刚刚':
-            return 30.0
-        if date_str == '昨天':
-            return 18.0
-        # 精确日期加分（YYYY-MM-DD）
-        m = re.match(r'^(\d{4})-(\d{2})-(\d{2})$', date_str)
-        if m:
-            try:
-                d = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                days_ago = (datetime.now() - d).days
-                if days_ago <= 7:
-                    return max(0, 20 - days_ago * 2)  # 1天内→18, 7天→6
-                elif days_ago <= 30:
-                    return max(0, 10 - (days_ago - 7) * 0.5)  # 8天→9.5, 30天→-1
-                elif days_ago <= 365:
-                    return 2.0  # 1年内→微调
-            except:
-                pass
-        return 0.0
+def _parse_weixin(html):
+    results=[]
+    if not BeautifulSoup: return results
+    soup=BeautifulSoup(html,'lxml')
+    for block in soup.select('div.txt-box')[:15]:
+        h3=block.select_one('h3 a')
+        if not h3: continue
+        title=_clean_summary(h3.get_text(strip=True))
+        if len(title)<3: continue
+        href=str(h3.get('href',''))
+        if href and not href.startswith('http'): href='https://weixin.sogou.com'+href
+        desc=block.select_one('p.txt-info')
+        summary=_clean_summary(desc.get_text(strip=True)) if desc else ''
+        date_str=''
+        date_elem=block.select_one('span.s2') or block.select_one('span[s]')
+        if date_elem: date_str=date_elem.get_text(strip=True)
+        r=dict(title=title,url=href,summary=summary,date=date_str,engine='weixin',url_type='direct')
+        _classify(r); results.append(r)
+    return results
 
-    for item in final:
-        item["score"] += time_boost(item)
+PW_PARSERS = {
+    'sogou': _parse_sogou, 'baidu': _parse_baidu, '360': _parse_360, 'weixin': _parse_weixin,
+}
+PW_ENGINE_CFG = {
+    'sogou': {'weight': 100, 'captcha_check': lambda h,r: 'seccodeForm' in h or 'antispider' in h},
+    'baidu': {'weight': 80, 'captcha_check': lambda h,r: '安全验证' in h or len(h)<10000},
+    '360':   {'weight': 60, 'captcha_check': lambda h,r: '验证码' in h or len(h)<10000},
+    'weixin':{'weight': 85, 'captcha_check': lambda h,r: '验证' in h or len(h)<3000},
+}
 
-    final.sort(key=lambda x: x["score"], reverse=True)
-    return final
-
-
-# ===== ===== P2: 并行执行（Tab池预热版） ===== =====
-
-def parallel_search(query: str, engine_ids: list, weights: dict) -> list:
-    """并行搜索多引擎，返回已去重排序的结果"""
-    all_results = []
-    
-    # P3: 预触发hot tab创建（并行搜索开始前，最短时间创建一个hot tab）
-    # 第一个引擎会用hot tab，减少create_tab开销
-    first_eid = engine_ids[0] if engine_ids else None
-    
-    with ThreadPoolExecutor(max_workers=min(len(engine_ids), 3)) as executor:
-        fut_to_eid = {}
-        for eid in engine_ids:
-            if eid not in EXTRACTORS:
-                continue
-            # 第一个引擎用hot tab，后续正常
-            use_hot = (eid == first_eid and len(engine_ids) > 1)
-            fut_to_eid[executor.submit(search_engine, eid, query, None, use_hot)] = eid
-        
-        for future in as_completed(fut_to_eid):
-            eid = fut_to_eid[future]
-            try:
-                results = future.result(timeout=PARALLEL_TIMEOUT)
-                if results:
-                    engine_name = next(
-                        e["name"] for e in BASE_ENGINES if e["id"] == eid
-                    )
-                    log_info(f"  [{engine_name}] 获取 {len(results)} 条")
-                    all_results.extend(results)
-            except Exception as e:
-                engine_name = next(
-                    e["name"] for e in BASE_ENGINES if e["id"] == eid
-                )
-                log_info(f"  [{engine_name}] 超时或出错: {str(e)[:40]}")
-
-    return deduplicate_and_rank(all_results, weights)
-
-
-# ===== ===== P0: JSON输出修复 ===== =====
-# 所有info/status输出走stderr，JSON(或纯结果)走stdout
-def log_info(*args, **kwargs):
-    """info输出走stderr，确保stdout只有纯结果"""
-    kwargs.pop('file', None)
-    print(*args, file=sys.stderr, **kwargs)
-
-# 全局重定向所有内部print到log_info
-# 为兼容已有代码，逐步替换
-LOG = log_info
-
-
-def check_health() -> bool:
-    """检查 Camoufox 服务状态"""
-    r = subprocess.run(["curl", "-s", f"{CAMOUFOX_URL}/health"],
-                       capture_output=True, text=True, timeout=5)
+async def _search_pw(engine, query, page):
+    """单个Playwright引擎搜索"""
+    cfg = PW_ENGINE_CFG[engine]
+    url = PW_BASE_URLS[engine].format(q=quote(query))
     try:
-        data = json.loads(r.stdout)
-        return data.get("ok", False)
-    except:
-        return False
+        await page.goto(url, timeout=20000, wait_until='domcontentloaded')
+        await asyncio.sleep(0.5)
+        html = await page.content()
+        results = PW_PARSERS[engine](html)
+        if cfg['captcha_check'](html, results): return engine, []
+        return engine, results
+    except Exception as e:
+        return engine, []
 
+# ===== URL解析（Playwright跳转链） =====
+async def _resolve_results(results):
+    resolve_slice = results[:8]
+    redirect_results = [(i, r) for i, r in enumerate(resolve_slice)
+                       if r.get('url_type')=='redirect' and r.get('url')]
+    if not redirect_results: return results
+    try:
+        browser = await _ensure_browser()
+        ctx = await _get_context(browser)
+        num_pages = min(3, len(redirect_results))
+        pages = [await ctx.new_page() for _ in range(num_pages)]
+        sem = asyncio.Semaphore(num_pages)
+        async def resolve_one(iu):
+            async with sem:
+                idx, r = iu
+                page = pages[idx % num_pages]
+                try:
+                    await page.goto(r['url'], wait_until='domcontentloaded', timeout=2000)
+                    final = page.url
+                    if final.startswith('http') and final != r['url']:
+                        results[idx]['url'] = final
+                        results[idx]['url_type'] = 'direct'
+                        results[idx]['resolved'] = True
+                except: pass
+        await asyncio.gather(*[resolve_one(iu) for iu in redirect_results], return_exceptions=True)
+        for p in pages:
+            try: await p.close()
+            except: pass
+    except: pass
+    return results
 
-def format_time(seconds: float) -> str:
-    """格式化时间"""
-    if seconds < 60:
-        return f"{seconds:.1f}秒"
-    return f"{int(seconds // 60)}分{int(seconds % 60)}秒"
+# ===== 语言检测 & 模式配置 =====
+_CJK_PAT = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]')
 
+def _has_chinese(text):
+    return bool(_CJK_PAT.search(text))
 
+# 引擎组
+CN_ENGINES = ['sogou', 'baidu', '360', 'weixin', 'bing_cn']
+ALL_ENGINES = CN_ENGINES + ['bing_http', 'github_issues']
+GLOBAL_ENGINES = ['bing_http']
+
+MODES = {
+    'deep':    CN_ENGINES,             # 综合：国内+Bing CN
+    'quick':   ['sogou'],              # 极速
+    'news':    ['sogou', 'baidu', 'weixin', 'bing_cn'],  # 中文新闻+Bing
+    'global':  GLOBAL_ENGINES,         # 纯国际，无浏览器
+    'policy':  ['baidu', 'sogou', 'bing_cn'],  # 政策研究+Bing
+    'stock':   ['sogou', 'baidu', 'weixin', 'bing_cn'],  # 财经+Bing
+    'dev':     ['sogou', 'baidu', 'github_issues', 'bing_cn'],  # 开发者向：技术问答+官方源
+}
+
+# HTTP引擎权重 & 权威性评分
+HTTP_ENGINE_WEIGHTS = {'bing_cn': 85, 'bing_http': 70, 'github_issues': 80}
+DOMAIN_AUTHORITY = {
+    'gov.cn': 20, 'edu.cn': 20,
+    'github.com': 15, 'arxiv.org': 20,
+    'thepaper.cn': 15, 'xinhuanet.com': 18, 'people.com.cn': 18,
+    'cctv.com': 18, 'news.cn': 18, 'sina.com.cn': 12,
+    'sohu.com': 8, '163.com': 8, 'qq.com': 8,
+    'stcn.com': 15, 'cls.cn': 15, 'eastmoney.com': 15,
+    'zhihu.com': 10, 'bilibili.com': 8,
+    'csdn.net': 8, 'cnblogs.com': 8, 'stackoverflow.com': 12,
+    'medium.com': 10, 'wikipedia.org': 18,
+    'mp.weixin.qq.com': 5,
+}
+
+def _get_domain_authority(url):
+    url_l = url.lower().replace('https://','').replace('http://','')
+    for dom, score in sorted(DOMAIN_AUTHORITY.items(), key=lambda x:-len(x[0])):
+        if dom in url_l: return score
+    return 0
+
+def _normalize_title(s):
+    """归一化标题：去标点/空白/括号内容（移除"官方"、"中文版"等噪声），统一小写"""
+    s = s.lower()
+    s = re.sub(r'[\(\[【][^\)\]】]*[\)\]】]', '', s)  # 去括号内容
+    s = re.sub(r'[【】\[\]（）()《》<>「」『』]', '', s)
+    s = re.sub(r'[\s\-—–_·…\'"，。、：；。！？,.!?;:]+', '', s)
+    return s
+
+# 中文停用词（去噪声，提高主题词权重）
+_STOPWORDS = set('的了是在我你他她它这那和与及或而把被将从为对到于上下来年月日时秒万亿千百十个把被给让使由自从向朝着对于关于')
+
+def _topic_key(s, n=8):
+    """提取主题词key：归一化 → 去停用词 → 取前n字符
+    例："5月25日A股三大指数集体高开超4400股上涨" → "5月25日a股三大指数集体高开超4400股"
+    """
+    s = _normalize_title(s)
+    # 去停用词（按字符级）
+    s = ''.join(c for c in s if c not in _STOPWORDS)
+    return s[:n]
+
+def _title_bigrams(s, n=2):
+    """生成字符n-gram集合（用于Jaccard相似度）"""
+    s = _normalize_title(s)
+    if len(s) < n: return {s}
+    return {s[i:i+n] for i in range(len(s)-n+1)}
+
+def _title_similarity(a, b, n=2):
+    """Jaccard相似度：基于字符n-gram"""
+    ba, bb = _title_bigrams(a, n), _title_bigrams(b, n)
+    if not ba or not bb: return 0.0
+    return len(ba & bb) / len(ba | bb)
+
+def _domain_of(url):
+    """提取URL的注册域名（去www./子路径/query）"""
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(url if url.startswith('http') else 'http://'+url)
+        host = u.netloc.lower()
+        if host.startswith('www.'): host = host[4:]
+        # 二级域名合并：xinhua.com.cn / news.cn 保留末两段
+        parts = host.split('.')
+        if len(parts) >= 2:
+            return '.'.join(parts[-2:])
+        return host
+    except: return ''
+
+def _dedup_v2(all_results, recency=None, sim_threshold=0.5):
+    """v12.2 去重 + 排序智能：
+    1. 主题词key合并（停用词过滤后前N字符，召回同一事件不同表述）
+    2. Jaccard 二次校验（避免误合并）
+    3. 跨源/跨引擎聚合（cross_verified加权）
+    """
+    weights = {}
+    for e in PW_ENGINE_CFG: weights[e] = PW_ENGINE_CFG[e]['weight']
+    for e in HTTP_ENGINE_WEIGHTS: weights[e] = HTTP_ENGINE_WEIGHTS[e]
+
+    # 第一步：算基础分 + 主题key
+    scored = []
+    for r in all_results:
+        score = weights.get(r['engine'], 50)
+        score += _get_domain_authority(r.get('url',''))
+        if r.get('summary'): score += 15
+        if r.get('date'):
+            score += 10
+            try:
+                dt = datetime.strptime(r['date'][:10], '%Y-%m-%d')
+                days = (datetime.now() - dt).days
+                if days <= 0: score += 20
+                elif days <= 7: score += 20 - int((days/7)*15)
+                elif days <= 30: score += 5
+                elif days <= 90: score += 2
+            except: pass
+        r['score'] = score
+        r['cross_verified'] = 0
+        r['domain'] = _domain_of(r.get('url',''))
+        r['topic_key'] = _topic_key(r.get('title',''), n=10)
+        scored.append(r)
+
+    # 第二步：合并 — 主题key完全相同 OR Jaccard > 阈值
+    clusters = []  # [member_indices]
+    used = [False] * len(scored)
+    for i, r in enumerate(scored):
+        if used[i]: continue
+        cluster = [i]
+        used[i] = True
+        for j in range(i+1, len(scored)):
+            if used[j]: continue
+            # 条件1：主题key相同（精确合并同一事件）
+            if r['topic_key'] and r['topic_key'] == scored[j]['topic_key']:
+                cluster.append(j); used[j] = True
+                continue
+            # 条件2：Jaccard 相似（兜底）
+            sim = _title_similarity(r['title'], scored[j]['title'])
+            if sim >= sim_threshold:
+                cluster.append(j); used[j] = True
+        clusters.append(cluster)
+
+    # 第三步：每个簇选代表 + 聚合
+    unique = []
+    cluster_id = 0
+    for cluster in clusters:
+        members = [scored[k] for k in cluster]
+        members.sort(key=lambda x: -x['score'])
+        rep = dict(members[0])
+        domains = set(m['domain'] for m in members if m['domain'])
+        engines = set(m['engine'] for m in members)
+        rep['cross_verified'] = max(0, len(domains) - 1) + max(0, len(engines) - 1)
+        rep['score'] += rep['cross_verified'] * 10
+        if len(domains) >= 3: rep['score'] += 15
+        elif len(domains) == 2: rep['score'] += 8
+        # 摘要：保留最长的
+        best_summary = max((m.get('summary','') for m in members), key=len)
+        if best_summary: rep['summary'] = best_summary
+        rep['source_count'] = len(domains)
+        rep['source_engines'] = ','.join(sorted(engines))
+        rep['cluster_size'] = len(members)
+        rep['cluster_id'] = cluster_id
+        cluster_id += 1
+        unique.append(rep)
+
+    unique.sort(key=lambda x: -x['score'])
+    if recency:
+        day_map = {'day':1,'week':7,'month':30,'year':365}
+        max_d = day_map.get(recency, 30)
+        unique = [r for r in unique if (not r.get('date') or _days_since(r['date'][:10]) <= max_d)]
+    return unique
+
+def _dedup(all_results, recency=None):
+    weights = {}
+    for e in PW_ENGINE_CFG: weights[e] = PW_ENGINE_CFG[e]['weight']
+    for e in HTTP_ENGINE_WEIGHTS: weights[e] = HTTP_ENGINE_WEIGHTS[e]
+    seen = set(); unique = []
+    for r in all_results:
+        key = re.sub(r'[\s\-—–_·…\'"，。、：；。！？【】（）()]+','',r['title'])[:25].lower()
+        if key in seen: continue
+        seen.add(key)
+        score = weights.get(r['engine'], 50)
+        score += _get_domain_authority(r.get('url',''))
+        if r.get('summary'): score += 15
+        if r.get('date'):
+            score += 10
+            try:
+                dt = datetime.strptime(r['date'][:10], '%Y-%m-%d')
+                days = (datetime.now() - dt).days
+                if days <= 0: score += 20
+                elif days <= 7: score += 20 - int((days/7)*15)
+                elif days <= 30: score += 5
+                elif days <= 90: score += 2
+            except: pass
+        r['cross_verified'] = 0; r['score'] = score; unique.append(r)
+    unique.sort(key=lambda x:-x['score'])
+    for i, a in enumerate(unique):
+        for j, b in enumerate(unique):
+            if i != j and a['engine'] != b['engine']:
+                ka = re.sub(r'[\s\-—–]+','',a['title'])[:20].lower()
+                kb = re.sub(r'[\s\-—–]+','',b['title'])[:20].lower()
+                if ka == kb or (len(ka)>10 and ka in b['title'].lower()):
+                    a['cross_verified'] += 1; a['score'] += 15
+    unique.sort(key=lambda x:-x['score'])
+    if recency:
+        day_map = {'day':1,'week':7,'month':30,'year':365}
+        max_d = day_map.get(recency, 30)
+        unique = [r for r in unique if (not r.get('date') or _days_since(r['date'][:10]) <= max_d)]
+    return unique
+
+def _days_since(d):
+    try: return (datetime.now() - datetime.strptime(d[:10],'%Y-%m-%d')).days
+    except: return 999
+
+# ===== 主搜索函数 =====
+async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=True, recency=None, exact=False, sources=None):
+    cached = _cache_get(query, engine, mode, recency, num)
+    if cached is not None:
+        print(f'  [cache] 命中{len(cached)}条，跳过搜索', file=sys.stderr)
+        return cached[:num]
+
+    # 确定引擎列表
+    if engine:
+        engines = [engine]
+    elif mode:
+        engines = MODES.get(mode, MODES['deep'])
+    else:
+        # 语言感知路由
+        if _has_chinese(query):
+            engines = CN_ENGINES  # 中文查询：国内+Bing CN（HTTP）
+        else:
+            engines = GLOBAL_ENGINES  # 非中文：纯国际
+
+    engines = [e for e in engines if e in PW_BASE_URLS or e in HTTP_BASE_URLS]
+    pw_engines = [e for e in engines if e in PW_BASE_URLS]
+    http_engines = [e for e in engines if e in HTTP_BASE_URLS]
+
+    start = time.time()
+    all_results = []
+
+    # 1) HTTP引擎搜索（aiohttp，无需浏览器）
+    if http_engines:
+        async with aiohttp.ClientSession() as session:
+            http_tasks = [_search_http(e, query, session) for e in http_engines]
+            http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
+            for eng, results in http_results:
+                if results:
+                    all_results.extend(results)
+
+    # 2) Playwright引擎搜索
+    if pw_engines:
+        browser = await _ensure_browser()
+        ctx = await _get_context(browser)
+        pw_pages = [await ctx.new_page() for _ in pw_engines]
+        pw_tasks = [_search_pw(e, query, p) for e, p in zip(pw_engines, pw_pages)]
+        pw_results = await asyncio.gather(*pw_tasks, return_exceptions=True)
+        for p in pw_pages:
+            try: await p.close()
+            except: pass
+        for eng, results in pw_results:
+            if results:
+                print(f'  [{eng}] {len(results)} 条结果', file=sys.stderr)
+                all_results.extend(results)
+            elif results is not None:
+                print(f'  [{eng}] 被拦截', file=sys.stderr)
+        await _release_browser()
+        await _cleanup_browser()
+
+    results = all_results
+
+    # URL解析
+    if resolve_urls:
+        results = await _resolve_results(results)
+
+    # 去重排序（v12.2: 智能去重 + 跨源聚合）
+    results = _dedup_v2(results, recency)
+    elapsed = time.time() - start
+    print(f'  [{int(elapsed)}s] 合计{len(results)}条', file=sys.stderr)
+
+    # 精确匹配
+    if exact and query:
+        q_l = query.lower()
+        results = [r for r in results if q_l in r.get('title','').lower()]
+    if sources:
+        results = [r for r in results if r.get('engine') in sources]
+
+    _cache_set(query, engine, mode, recency, num, results)
+    return results[:num]
+
+# ===== CLI =====
 def main():
-    parser = argparse.ArgumentParser(
-        description="Star Search v8.3 - 多引擎智能搜索（旗舰版）"
-    )
-    parser.add_argument("query", help="搜索关键词")
-    parser.add_argument("--engine", choices=[e["id"] for e in BASE_ENGINES],
-                        default=None, help="指定引擎（默认按模式/动态选择）")
-    parser.add_argument("--mode",
-                        choices=list(SEARCH_MODES.keys()) + ["auto"],
-                        default="auto",
-                        help="搜索模式（默认auto自动检测）")
-    parser.add_argument("--json", action="store_true",
-                        help="JSON 格式输出到stdout（info/stderr）")
-    parser.add_argument("--list", action="store_true",
-                        help="列出可用引擎和模式")
-    parser.add_argument("--top", type=int, default=10,
-                        help="输出结果数量（默认10，最大30）")
-    parser.add_argument("--resolve", action="store_true",
-                        help="解析跳转链接为真实URL（增加耗时约1-2秒）")
-    args = parser.parse_args()
+    p = argparse.ArgumentParser(description='Star Search v11.0 - Hybrid HTTP+Playwright')
+    all_engine_names = sorted(set(list(PW_BASE_URLS.keys()) + list(HTTP_BASE_URLS.keys())))
+    p.add_argument('query', nargs='?', help='搜索关键词')
+    p.add_argument('--engine', choices=all_engine_names)
+    p.add_argument('--mode', choices=list(MODES.keys()) + ['gl'], default=None,
+                   help='搜索模式（默认：语言感知自动路由）')
+    p.add_argument('--recency', choices=['day','week','month','year'])
+    p.add_argument('--exact', action='store_true', help='精确匹配')
+    p.add_argument('--sources', type=str, help='逗号分隔限定来源引擎')
+    p.add_argument('--json', action='store_true')
+    p.add_argument('--top', type=int, default=10)
+    p.add_argument('--list', action='store_true')
+    p.add_argument('--no-resolve', action='store_true', help='禁用URL解析')
+    args = p.parse_args()
 
     if args.list:
-        log_info("可用引擎:")
-        for e in BASE_ENGINES:
-            log_info(f"  {e['id']:8} - {e['name']} (基础权重:{e['base_weight']})")
-        log_info("\n搜索模式:")
-        for mode_id, cfg in SEARCH_MODES.items():
-            log_info(f"  {mode_id:8} - {cfg['desc']}")
+        print('引擎:', ', '.join(all_engine_names))
+        print('HTTP:', ', '.join(HTTP_BASE_URLS.keys()))
+        print('Playwright:', ', '.join(PW_BASE_URLS.keys()))
+        print('模式:', ', '.join(MODES.keys()))
         return
 
-    # 检查服务
-    start_time = time.time()
-    if not check_health():
-        log_info("❌ Camoufox 服务未运行，请先启动")
-        sys.exit(1)
+    if not args.query:
+        p.print_help(); return
 
-    # 确定模式
-    mode = args.mode
-    if mode == "auto":
-        query_lower = args.query
-        if any(kw in query_lower for kw in ["政策", "国务院", "央行", "发改委"]):
-            mode = "policy"
-        elif any(kw in query_lower for kw in ["股票", "股价", "涨停", "行情", "代码"]):
-            mode = "stock"
-        elif any(kw in query_lower for kw in ["今日", "最新", "快讯"]):
-            mode = "news"
-        else:
-            mode = "deep"
-
-    mode_cfg = SEARCH_MODES.get(mode, SEARCH_MODES["deep"])
-    mode_desc = mode_cfg["desc"]
-
-    if args.engine:
-        engine_ids = [args.engine]
-    else:
-        engine_ids = mode_cfg["engines"]
-
-    weights = get_dynamic_weights(args.query, mode)
-
-    engine_names = "/".join(
-        next(e["name"] for e in BASE_ENGINES if e["id"] == eid)
-        for eid in engine_ids
-    )
-
-    mode_tag = f"[{mode}] {mode_desc}"
-
-    log_info()
-    log_info(f"🔍 Star Search v8.3 - 搜索: {args.query}")
-    log_info(f"模式: {mode_tag}")
-    log_info(f"引擎: {engine_names}")
-
-    results = parallel_search(args.query, engine_ids, weights)
-
-    if len(results) > 0:
-        # 方案C：异步URL解析——不阻塞输出，后台尽可能解析
-        # 多引擎模式解析前5条，单引擎模式(quick)解析前2条
-        resolve_n = 5 if len(engine_ids) >= 2 else 2
-        results = resolve_urls_async(results, top_n=resolve_n)
-
-    top_n = min(max(args.top, 1), 30)
-    elapsed = time.time() - start_time
-    log_info(f"\n{'='*60}")
-    log_info(f"📊 获取 {len(results)} 条去重结果 | 耗时 {format_time(elapsed)}")
-    log_info(f"{'='*60}")
+    resolve = not args.no_resolve
+    sources = None
+    if args.sources:
+        sources = [s.strip() for s in args.sources.split(',') if s.strip() in all_engine_names]
+        if not sources:
+            print('⚠️ --sources 无效，可用: ' + ', '.join(all_engine_names), file=sys.stderr); return
+    results = asyncio.run(search_async(
+        args.query, engine=args.engine, num=args.top,
+        mode=args.mode, resolve_urls=resolve, recency=args.recency,
+        exact=args.exact, sources=sources))
 
     if args.json:
-        # JSON输出 → 纯stdout（info已全部走stderr）
-        json_out = []
-        for r in results[:top_n]:
-            url_type = r.get("url_type", "redirect")
-            # resolving标记：异步解析中/已完成
-            json_out.append({
-                "title": r["title"].lstrip("⭐"),
-                "url": r["url"],
-                "url_type": url_type,
-                "real_url": r.get("real_url", r["url"]),
-                "engine": r["best_source"],
-                "cross_validated": r["cross_validated"],
-                "date": r.get("date", "") or "",
-                "summary": r.get("summary", "") or "",
-                "score": round(r["score"], 1),
-                "resolved": url_type == "direct",
-            })
-        sys.stdout.write(json.dumps(json_out, ensure_ascii=False, indent=2) + "\n")
+        print(json.dumps(results, ensure_ascii=False, indent=2))
     else:
-        # 普通文本输出也走stdout（附标题+摘要等），但只剩结果行
-        for i, r in enumerate(results[:top_n], 1):
-            date_str = f" 📅{r['date']}" if r.get("date") else ""
-            cv_str = f" ✅{r['cross_validated']}引擎" if r["cross_validated"] > 1 else ""
-            ut = r.get("url_type", "redirect")
-            if ut == "direct":
-                ut_tag = "🔗"
-            elif ut == "sourced":
-                ut_tag = "📎"
-            else:
-                ut_tag = "↪"
-            # 正在解析中的显示特殊标记
-            resolving_tag = " ⏳" if r.get("resolving") else ""
-            print(f"{i:2d}. {r['title'][:65]}{cv_str}{date_str} {ut_tag}{resolving_tag}")
-            summary = r.get("summary", "")
-            if summary:
-                print(f"    [{r['best_source']}] {summary[:80]}")
-            else:
-                print(f"    [{r['best_source']}] {r['url'][:65]}")
-            print()
+        print(f'📊 {len(results)} 条结果')
+        for i, r in enumerate(results, 1):
+            d = f' [{r["date"]}]' if r.get('date') else ''
+            e = f' ({r["engine"]})'
+            c = f' {r.get("category","🔗网页")}'
+            cross = ' ⭐' if r.get('cross_verified',0) > 0 else ''
+            print(f'{i}. {r["title"]}{d}{e}{c}{cross}')
+            print(f'   {r["url"][:100]}')
+            if r.get('summary'): print(f'   {r["summary"][:150]}')
 
-        if len(results) > top_n:
-            print(f"... 还有 {len(results) - top_n} 条未显示（使用 --top 30 查看全部）")
-
-        print(f"耗时 {format_time(elapsed)}, {mode}模式")
-
-    log_info(f"查询完成，结果已输出至stdout"  if args.json else "" )
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
