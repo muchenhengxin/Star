@@ -726,11 +726,13 @@ def _days_since(d):
     except: return 999
 
 # ===== 主搜索函数 =====
-async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=True, recency=None, exact=False, sources=None):
-    cached = _cache_get(query, engine, mode, recency, num)
-    if cached is not None:
-        print(f'  [cache] 命中{len(cached)}条，跳过搜索', file=sys.stderr)
-        return cached[:num]
+async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=True, recency=None, exact=False, sources=None, force_refresh=False):
+    # v14 增量追加：force_refresh 绕过缓存，拿到新结果后由调用方合并
+    if not force_refresh:
+        cached = _cache_get(query, engine, mode, recency, num)
+        if cached is not None:
+            print(f'  [cache] 命中{len(cached)}条，跳过搜索', file=sys.stderr)
+            return cached[:num]
 
     # 确定引擎列表
     if engine:
@@ -764,10 +766,20 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
     if pw_engines:
         browser = await _ensure_browser()
         ctx = await _get_context(browser)
-        pw_pages = [await ctx.new_page() for _ in pw_engines]
-        pw_tasks = [_search_pw(e, query, p) for e, p in zip(pw_engines, pw_pages)]
-        pw_results = await asyncio.gather(*pw_tasks, return_exceptions=True)
+        # v14 fix: 容错 new_page 失败（context 偶发被 close）
+        pw_pages = []
+        for _ in pw_engines:
+            try:
+                pw_pages.append(await ctx.new_page())
+            except Exception as e:
+                print(f'  [pw] new_page 失败: {e}，跳过该引擎', file=sys.stderr)
+                pw_pages.append(None)
+        # 只对成功 new_page 的引擎跑任务
+        active = [(e, p) for e, p in zip(pw_engines, pw_pages) if p is not None]
+        pw_tasks = [_search_pw(e, query, p) for e, p in active]
+        pw_results = await asyncio.gather(*pw_tasks, return_exceptions=True) if pw_tasks else []
         for p in pw_pages:
+            if p is None: continue
             try: await p.close()
             except: pass
         for eng, results in pw_results:
@@ -797,6 +809,28 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
         results = [r for r in results if q_l in r.get('title','').lower()]
     if sources:
         results = [r for r in results if r.get('engine') in sources]
+
+    # v14 增量追加：force_refresh 模式 — 与历史 cache 合并
+    if force_refresh and not engine:
+        try:
+            old = _cache_get(query, None, mode, recency, 30) or []
+            if old:
+                seen_urls = set()
+                merged = []
+                # 新结果在前（标 refresh=True），历史结果在后（标 refresh=False）
+                for r in results:
+                    u = r.get('url', '')
+                    if u and u not in seen_urls:
+                        seen_urls.add(u); r['refresh'] = True; merged.append(r)
+                for r in old:
+                    u = r.get('url', '')
+                    if u and u not in seen_urls:
+                        seen_urls.add(u); r['refresh'] = False; merged.append(r)
+                results = merged[:max(num, 30)]
+                new_count = sum(1 for r in results if r.get('refresh'))
+                print(f'  [增量] 新{new_count}条 + 历史{len(results)-new_count}条 = {len(results)}条', file=sys.stderr)
+        except Exception as e:
+            print(f'  [增量] 合并失败: {e}', file=sys.stderr)
 
     _cache_set(query, engine, mode, recency, num, results)
     return results[:num]

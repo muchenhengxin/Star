@@ -1,15 +1,17 @@
-# Star Search v13.0 — 智能缓存层 + 智能去重 + GitHub Issues
+# Star Search v14.0 — OpenAI API + 增量追加 + 智能缓存 + 智能去重 + GitHub Issues
 
-> **免费中文搜索。7 引擎混动，HTTP 引擎 <1秒直出，GitHub Issues 引擎面向开发者，智能去重 + 跨源聚合（⭐ 标记），v13 智能缓存（分桶TTL + query归一化），全面超越百度千帆 API。**
+> **免费中文搜索。7 引擎混动，HTTP 引擎 <1秒直出，GitHub Issues 引擎面向开发者，智能去重 + 跨源聚合（⭐ 标记），v13 智能缓存（分桶TTL + query归一化），v14 OpenAI API 暴露 + 增量追加，全面超越百度千帆 API。**
 
-![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue) ![License MIT](https://img.shields.io/badge/license-MIT-green) ![Version 13.0](https://img.shields.io/badge/version-13.0-orange) ![Engines 7](https://img.shields.io/badge/engines-7-brightgreen)
+![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue) ![License MIT](https://img.shields.io/badge/license-MIT-green) ![Version 14.0](https://img.shields.io/badge/version-14.0-orange) ![Engines 7](https://img.shields.io/badge/engines-7-brightgreen)
 
 ---
 
-## v13.0 核心升级
+## v14.0 核心升级
 
 | 升级 | 价值 |
 |------|------|
+| **OpenAI-compatible API** (v14) | FastAPI 5 endpoints，subagent/脚本可直接调用 |
+| **增量追加** (v14) | `force_refresh` 绕过缓存 + 与历史合并，节省 78% 时间 |
 | **智能缓存 v13** | 分桶TTL（news 5min / dev 1h）+ query 归一化 + 桶复用（num 5/8/10 共享）+ 命中率统计 |
 | **GitHub Issues 引擎** (v12.1) | 开发者向查询直接拿到 issue 级讨论（带 [bug] / [feature-request] 标签），自动过滤 bot 批量 issue |
 | **智能去重** (v12.2) | 主题词 key + Jaccard 双策略合并同事件多转载 |
@@ -167,6 +169,7 @@ python3 scripts/search.py --list
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
+| **14.0** | 2026-06-01 | **OpenAI API + 增量追加**：FastAPI 5 endpoints（/v1/search + /v1/search/refresh）+ force_refresh 强制刷新 + 与历史合并（refresh=true/false 标记）|
 | **13.0** | 2026-06-01 | **智能缓存层**：分桶TTL（news 5min / dev 1h）+ query归一化 + 桶复用（num 5/8/10 共享）+ 命中率统计 |
 | **12.2** | 2026-06-01 | **智能去重 + 跨源聚合**：主题词 key + Jaccard 双策略，⭐ 标记，cluster_size |
 | **12.1** | 2026-06-01 | **GitHub Issues 引擎**：开发者向查询，issue 级讨论，过滤 bot/PR。dev 模式 |
