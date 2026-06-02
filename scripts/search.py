@@ -16,7 +16,14 @@ try:
 except ImportError:
     BeautifulSoup = None
 
-from playwright.async_api import async_playwright
+try:
+    from playwright.async_api import async_playwright
+    _PLAYWRIGHT_OK = True
+except ImportError:
+    async_playwright = None
+    _PLAYWRIGHT_OK = False
+    import sys
+    print("⚠️  playwright 未安装 — 浏览器引擎 (sogou/baidu/360/weixin) 不可用；HTTP 引擎照常工作", file=sys.stderr)
 import aiohttp
 
 # ===== 配置 =====
@@ -39,7 +46,8 @@ PW_BASE_URLS = {
 HTTP_BASE_URLS = {
     # 'sogou': v16 移除 — PW_PARSERS 有但 HTTP_PARSERS 无，会 KeyError。sogou 走 PW 即可
     'bing_cn':  'https://cn.bing.com/search?q={q}&setlang=zh-cn&count=15',
-    'bing_http': 'https://www.bing.com/search?q={q}&setlang=en&count=15',
+    # v16.1: bing_http 改动态 setlang（{lang} 占位符在 _search_http 替换）
+    'bing_http': 'https://www.bing.com/search?q={q}&setlang={lang}&count=15',
     'github_issues': 'https://api.github.com/search/issues?q={q}+language:zh+archived:false&sort=updated&order=desc&per_page=15',
     # v15: 3个 site:bing 直搜代理 — 免反爬 <1秒
     'toutiao':  'https://cn.bing.com/search?q=site%3Atoutiao.com+{q}&setlang=zh-cn&count=15',
@@ -53,6 +61,13 @@ HTTP_BASE_URLS = {
     'tencent_cloud': 'https://cn.bing.com/search?q=site%3Acloud.tencent.com+{q}&setlang=zh-cn&count=15',
     'sina_finance':  'https://cn.bing.com/search?q=site%3Afinance.sina.com.cn+{q}&setlang=zh-cn&count=15',
     'sohu':     'https://cn.bing.com/search?q=site%3Asohu.com+{q}&setlang=zh-cn&count=15',
+    # v16.1: 5 个 RSS 引擎（不带 query — RSS endpoint 固定）
+    # 注：RSS_BASE_URLS 在 _search_http 里特殊处理：q 占位符忽略
+    'rss_ithome':  'https://www.ithome.com/rss/?q={q}',
+    'rss_36kr':    'https://36kr.com/feed-newsflash?q={q}',
+    'rss_sspai':   'https://sspai.com/feed?q={q}',
+    'rss_oschina': 'https://www.oschina.net/news/rss?q={q}',
+    'rss_woshipm': 'https://www.woshipm.com/feed?q={q}',
 }
 
 # ===== Playwright全局单例 =====
@@ -60,6 +75,8 @@ _pw = None; _browser = None; _browser_refcount = 0
 
 async def _ensure_browser():
     global _pw, _browser, _browser_refcount
+    if not _PLAYWRIGHT_OK:
+        raise RuntimeError("playwright 未安装；浏览器引擎 (sogou/baidu/360/weixin) 不可用。请 pip install playwright + playwright install chromium")
     if _browser and _browser.is_connected():
         _browser_refcount += 1; return _browser
     _pw = await async_playwright().start()
@@ -340,11 +357,89 @@ HTTP_PARSERS = {
     'tencent_cloud': _parse_bing_cn,
     'sina_finance': _parse_bing_cn,
     'sohu': _parse_bing_cn,
+    # v16.1: 5 个 RSS 引擎（v15.1 探针确认 target>0）
+    'rss_ithome':  lambda xml, engine='rss_ithome':  _parse_rss(xml, engine),
+    'rss_36kr':    lambda xml, engine='rss_36kr':    _parse_rss(xml, engine),
+    'rss_sspai':   lambda xml, engine='rss_sspai':   _parse_rss(xml, engine),
+    'rss_oschina': lambda xml, engine='rss_oschina': _parse_rss(xml, engine),
+    'rss_woshipm': lambda xml, engine='rss_woshipm': _parse_rss(xml, engine),
 }
+
+# v16.1: RSS 端点配置（site 字段用于 engine 标签真实）
+RSS_ENDPOINTS = {
+    'rss_ithome':  ('https://www.ithome.com/rss/',                      'ithome.com'),
+    'rss_36kr':    ('https://36kr.com/feed-newsflash',                   '36kr.com'),
+    'rss_sspai':   ('https://sspai.com/feed',                            'sspai.com'),
+    'rss_oschina': ('https://www.oschina.net/news/rss',                  'oschina.net'),
+    'rss_woshipm': ('https://www.woshipm.com/feed',                      'woshipm.com'),
+}
+
+
+def _parse_rss(xml, engine='rss'):
+    """v16.1: 通用 RSS 2.0 解析器（无 feedparser 依赖）
+    输入: RSS XML 字符串
+    输出: [{title, url, summary, date, engine, url_type}, ...]
+    限制: 不支持 Atom（这些站点都是 RSS 2.0）
+    """
+    results = []
+    # 提取所有 <item>
+    items = re.findall(r'<item[\s>](.*?)</item>', xml, re.DOTALL | re.IGNORECASE)
+    site = RSS_ENDPOINTS.get(engine, ('', ''))[1] or ''
+    for it in items[:15]:
+        # title (支持 CDATA)
+        tm = re.search(r'<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>', it, re.DOTALL)
+        title = _clean_summary(tm.group(1).strip()) if tm else ''
+        if len(title) < 3: continue
+        # link
+        lm = re.search(r'<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</link>', it, re.DOTALL)
+        if not lm: lm = re.search(r'<link\s+[^>]*href=[\"\']*(.*?)[\"\']*\s*/?>', it, re.DOTALL)
+        href = lm.group(1).strip() if lm else ''
+        if href and not href.startswith('http'): continue
+        # description / content
+        dm = re.search(r'<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>', it, re.DOTALL)
+        summary_raw = dm.group(1) if dm else ''
+        # 转 HTML 到纯文本
+        # 转 HTML 实体到纯文本（&lt; / &gt; / &amp; / &quot; / &#34; / &nbsp;）
+        if summary_raw:
+            summary_raw = (summary_raw.replace('&lt;', '<').replace('&gt;', '>')
+                           .replace('&amp;', '&').replace('&quot;', '"').replace('&#34;', '"')
+                           .replace('&nbsp;', ' ').replace('&#39;', "'"))
+        summary = _clean_summary(summary_raw, title) if summary_raw else ''
+        # pubDate
+        pm = re.search(r'<pubDate>(.*?)</pubDate>', it, re.DOTALL)
+        date_raw = pm.group(1).strip() if pm else ''
+        date = _parse_rss_date(date_raw) or _extract_date(title) or _extract_date(summary)
+        r = dict(title=title, url=href, summary=summary or '', date=date,
+                 engine=engine, url_type='direct')
+        _classify(r)
+        # 强制 engine 标签为真实别名
+        r['engine'] = engine
+        results.append(r)
+    return results
+
+
+def _parse_rss_date(s):
+    """RSS pubDate 解析（RFC 822: 'Tue, 03 Jun 2025 12:34:56 +0800'）"""
+    if not s: return ''
+    m = re.search(r'(\d{1,2})\s+(\w{3})\s+(\d{4})', s)
+    if not m: return ''
+    months = {'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
+              'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'}
+    day, mon, year = m.group(1), m.group(2), m.group(3)
+    return f'{year}-{months.get(mon,"01")}-{int(day):02d}'
 
 async def _search_http(engine, query, session):
     """单个HTTP引擎搜索（aiohttp，快速直链）"""
-    url = HTTP_BASE_URLS[engine].format(q=quote(query))
+    # v16.1: RSS 引擎使用固定 endpoint（忽略 query 参数，只取最新条目后客户端过滤）
+    if engine in RSS_ENDPOINTS:
+        url = RSS_ENDPOINTS[engine][0]
+    else:
+        # v16.1: bing_http 按 query 语言动态 setlang；其他引擎无 {lang} 占位符
+        lang = 'zh-cn' if re.search(r'[\u4e00-\u9fa5]', query) else 'en'
+        if '{lang}' in HTTP_BASE_URLS[engine]:
+            url = HTTP_BASE_URLS[engine].format(q=quote(query), lang=lang)
+        else:
+            url = HTTP_BASE_URLS[engine].format(q=quote(query))
     # GitHub API需要专属请求头（Accept版本 + UA）
     if engine == 'github_issues':
         headers = {
@@ -401,10 +496,29 @@ async def _search_http(engine, query, session):
             elif engine == 'sohu':
                 results = [r for r in results if 'sohu.com' in r.get('url', '')]
                 for r in results: r['engine'] = 'sohu'
+            # v16.1: RSS 引擎客户端按 query 关键词过滤（RSS endpoint 不带 q）
+            elif engine in RSS_ENDPOINTS:
+                results = _filter_by_query(results, query, engine)
+                for r in results: r['engine'] = engine
             print(f'  [{engine}] {len(results)} 条结果', file=sys.stderr)
             return engine, results
     except Exception as e:
         print(f'  [{engine}] 错误: {type(e).__name__}', file=sys.stderr); return engine, []
+
+
+def _filter_by_query(results, query, engine):
+    """v16.1: RSS 返回所有最新条目，按 query 关键词命中过滤
+    策略: 提取 query 中的中英文关键词（去停用词），title/summary 命中任一即保留
+    兜底: 关键词全部不命中时取前 5 条（保证 RSS 引擎总能返回结果）
+    """
+    if not results: return results
+    # 中文 2-字 切词 + 英文 3+ 词
+    cn = re.findall(r'[\u4e00-\u9fa5]{2,}', query)
+    en = re.findall(r'[a-zA-Z]{3,}', query.lower())
+    keywords = cn + en
+    if not keywords: return results[:5]
+    hits = [r for r in results if any(kw.lower() in (r.get('title','')+r.get('summary','')).lower() for kw in keywords)]
+    return hits[:10] if hits else results[:5]
 
 # ===== Playwright引擎搜索（保留v10.x的解析器） =====
 def _parse_sogou(html):
@@ -579,16 +693,33 @@ def _has_chinese(text):
 # 引擎组
 CN_ENGINES = ['sogou', 'baidu', '360', 'weixin', 'bing_cn']
 ALL_ENGINES = CN_ENGINES + ['bing_http', 'github_issues']
-GLOBAL_ENGINES = ['bing_http']
+# v16.1: global mode 中文 query 走 bing_cn+bing_http 双源，英文 query 走纯国际
+# 用 _pick_global_engines() 在 search_async 里按 query 动态选择
+GLOBAL_ENGINES_ZH = ['bing_cn', 'bing_http']
+GLOBAL_ENGINES_EN = ['bing_http']
+
+def _pick_global_engines(query):
+    """v16.1: global mode 按 query 语言动态选引擎
+    含中文字符 → 加 bing_cn 双源（中文社区 GPT-4 讨论质量高）
+    纯英文 → 只走 bing_http (国际)"""
+    if re.search(r'[\u4e00-\u9fa5]', query):
+        return GLOBAL_ENGINES_ZH
+    return GLOBAL_ENGINES_EN
 
 MODES = {
     'deep':    CN_ENGINES,             # 综合：国内+Bing CN
     'quick':   ['sogou'],              # 极速
     'news':    ['sogou', 'baidu', 'weixin', 'bing_cn'],  # 中文新闻+Bing
-    'global':  GLOBAL_ENGINES,         # 纯国际，无浏览器
+    'global':  GLOBAL_ENGINES_ZH,       # v16.1: 中文走双源；纯英文在 search_async 里再切
     'policy':  ['baidu', 'sogou', 'bing_cn'],  # 政策研究+Bing
     'stock':   ['sogou', 'baidu', 'weixin', 'bing_cn'],  # 财经+Bing
     'dev':     ['sogou', 'baidu', 'github_issues', 'bing_cn'],  # 开发者向：技术问答+官方源
+    # v16.1: 4 个新组合 mode（v15.1 7 引擎 + v16.1 5 RSS 引擎）
+    'dev_rss':   ['sogou', 'baidu', 'github_issues', 'bing_cn', 'cnblogs', 'csdn',
+                  'rss_ithome', 'rss_36kr', 'rss_sspai', 'rss_oschina', 'rss_woshipm'],
+    'tech_news': ['cnblogs', 'csdn', 'rss_ithome', 'rss_36kr', 'rss_sspai', 'rss_oschina'],
+    'finance':   ['eastmoney', 'cls', 'sina_finance', 'rss_woshipm', 'rss_36kr'],
+    'weixin_agg':['weixin', 'sogou', 'cls', 'woshipm'],  # v16.1: weixin (PW+HTTP双源) + sogou + cls + woshipm
 }
 
 # HTTP引擎权重 & 权威性评分
@@ -795,12 +926,15 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
         engines = [engine]
     elif mode:
         engines = MODES.get(mode, MODES['deep'])
+        # v16.1: global mode 动态语言路由（中文加 bing_cn 双源；纯英文只 bing_http）
+        if mode == 'global':
+            engines = _pick_global_engines(query)
     else:
         # 语言感知路由
         if _has_chinese(query):
             engines = CN_ENGINES  # 中文查询：国内+Bing CN（HTTP）
         else:
-            engines = GLOBAL_ENGINES  # 非中文：纯国际
+            engines = GLOBAL_ENGINES_EN  # v16.1: 纯国际（删 GLOBAL_ENGINES）
 
     engines = [e for e in engines if e in PW_BASE_URLS or e in HTTP_BASE_URLS]
     pw_engines = [e for e in engines if e in PW_BASE_URLS]

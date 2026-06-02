@@ -1,12 +1,12 @@
 ---
 name: star-search
-description: "中文搜索 + 16 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量 + 质量标识。16引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信+CSDN+博客园+东方财富+财联社+腾讯云开发者+新浪财经+搜狐(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 site:bing 直搜+定时 cron 客户端，v15.1 新增 7 个 site 代理引擎，v16 修复 sogou KeyError + 质量标识🌟🌟🌟 + --explain 评分透明。目标：赶超百度搜索的免费中文搜索引擎。"
-version: 16.0
+description: "中文搜索 + 16 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量 + 质量标识。16引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信+CSDN+博客园+东方财富+财联社+腾讯云开发者+新浪财经+搜狐(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 site:bing 直搜+定时 cron 客户端，v15.1 新增 7 个 site 代理引擎，v16 修复 sogou KeyError + 质量标识🌟🌟🌟 + --explain 评分透明，v16.1 加 5 个 RSS 引擎 (ithome/36kr/sspai/oschina/woshipm) + global mode 中英双源路由 + cron_refresh 5 个 preset 模板。目标：赶超百度搜索的免费中文搜索引擎。"
+version: 16.1
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug]
+    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug, RSS, Ithome, 36kr, Sspai, Oschina, Woshipm, Global]
     related_skills: [arxiv, blogwatcher, session_search, commercial-opportunity-research, ai-api-relay-station]
 ---
 
@@ -118,7 +118,7 @@ metadata:
 详细对比：`references/vs-baidu-search-comparison.md`
 
 开发记录（v12+ 引擎复用 + 去重决策）：
-- `references/v12-engine-addition-recipe.md` — 新 JSON API 引擎三步接入模板（GitHub Issues 类）
+- `references/v16-engine-addition-checklist.md` — **v16 必看**：新引擎接入 4 dict 对齐 + 一行命令验证（搜狗 KeyError 教训）
 - `references/dedup-merge-decision-log.md` — v12.2 智能去重算法的迭代决策与产品判断
 - `references/v14-api-and-incremental-merge.md` — v14 FastAPI wrapper + force_refresh 增量追加 + Playwright 长进程容错（CLI→API 暴露的通用 pattern）
 - `references/v15-site-bing-probe-results.md` — v15.1 27 域 site:bing 实测数据（哪些能拿到真实结果、哪些 Bing 索引不到）

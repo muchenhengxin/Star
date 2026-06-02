@@ -23,8 +23,8 @@ import uvicorn
 sys.path.insert(0, str(Path(__file__).parent))
 import search as s
 
-app = FastAPI(title="star-search API", version="14.0",
-              description="免费中文搜索 API · 7 引擎 · 智能去重 · 智能缓存")
+app = FastAPI(title="star-search API", version="16.1",
+              description="免费中文搜索 API · 16 引擎 · 智能去重 · 智能缓存 · 质量标识 🌟🌟🌟")
 
 # ===== 数据模型 =====
 class SearchRequest(BaseModel):
@@ -47,7 +47,7 @@ class RefreshRequest(BaseModel):
 # ===== 接口 =====
 @app.get("/v1/health")
 async def health():
-    return {"status": "ok", "version": "14.0", "engines": 7, "modes": 7}
+    return {"status": "ok", "version": "16.1", "engines": 16, "modes": 11}
 
 @app.get("/v1/modes")
 async def modes():
@@ -56,7 +56,10 @@ async def modes():
 @app.get("/v1/engines")
 async def engines():
     return {
-        "http": ["sogou_http", "bing_cn", "github_issues", "bing_http"],
+        "http": ["bing_cn", "bing_http", "github_issues",
+                 "toutiao", "zhihu", "weixin",
+                 "csdn", "cnblogs", "eastmoney", "cls", "tencent_cloud", "sina_finance", "sohu",
+                 "rss_ithome", "rss_36kr", "rss_sspai", "rss_oschina", "rss_woshipm"],
         "playwright": ["sogou", "baidu", "360", "weixin"],
     }
 
