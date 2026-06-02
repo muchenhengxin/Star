@@ -1,16 +1,39 @@
 ---
 name: star-search
-description: "中文搜索 + 17 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量。17引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信+CSDN+博客园+东方财富+财联社+腾讯云开发者+新浪财经+搜狐(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 site:bing 直搜+定时 cron 客户端，v15.1 新增 7 个 site 代理引擎。目标：赶超百度搜索的免费中文搜索引擎。"
-version: 15.1
+description: "中文搜索 + 16 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量 + 质量标识。16引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信+CSDN+博客园+东方财富+财联社+腾讯云开发者+新浪财经+搜狐(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 site:bing 直搜+定时 cron 客户端，v15.1 新增 7 个 site 代理引擎，v16 修复 sogou KeyError + 质量标识🌟🌟🌟 + --explain 评分透明。目标：赶超百度搜索的免费中文搜索引擎。"
+version: 16.0
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu]
+    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug]
     related_skills: [arxiv, blogwatcher, session_search, commercial-opportunity-research, ai-api-relay-station]
 ---
 
-# Star Search v15.1 — 17 引擎直搜 + 定时增量 + OpenAI API + 智能缓存 + 智能去重
+# Star Search v16.0 — 16 引擎直搜 + 定时增量 + OpenAI API + 智能缓存 + 智能去重 + 质量标识
+
+## v16.0 — 鲁棒性 + 可解释性（2026-06-02）
+
+### 修复：sogou 引擎 KeyError 反复刷 stderr
+- **根因**：`sogou` 误同时在 `HTTP_BASE_URLS` 和 `PW_BASE_URLS` 注册，但只在 `PW_PARSERS` 注册解析器
+- **表现**：跑 deep mode 时搜狗会先走 HTTP → `HTTP_PARSERS['sogou']` KeyError → stderr 一直刷 → 用户视角"搜狗挂了"
+- **修复**：`HTTP_BASE_URLS` 移除 sogou（保留 PW 注册），KeyError 消失
+- **验证**：6/6 mode smoke test，0 错误，平均 3 秒
+
+### 新增：质量标识 🌟🌟🌟
+- **逻辑**：v12.2 已有 `cross_verified` 字段（跨源/跨引擎聚合数），但前端只显示 ⭐ 一个
+- **新规则**：
+  - `cross_verified >= 3` → 🌟🌟🌟（3+ 源验证，高可信）
+  - `cross_verified >= 2` → 🌟🌟
+  - `cross_verified >= 1` → 🌟
+  - `= 0` → 无
+- **示例**：华为鸿蒙 PC 排名第 1 标 🌟🌟🌟 (3 跨源)，第 2 标 🌟🌟
+
+### 新增：--explain 调试模式
+- **用法**：`python3 scripts/search.py "query" --explain`
+- **输出**：每条结果下方打印 `📊 date_score · cross_verified=+40 · domain_auth=+8 · total=155`
+- **目的**：让用户/调试者看到评分构成（不只看到一个 final score）
+- **API 端**：`/v1/search` 返回的 results 已带 score/cross_verified 字段，调用方可自行渲染
 
 ## v12.x/v13.x/v14.x/v15.x 重大升级
 

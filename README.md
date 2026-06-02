@@ -1,16 +1,19 @@
-# Star Search v15.0 — 10 引擎直搜 + 定时增量 + OpenAI API + 智能缓存 + 智能去重
+# Star Search v16.0 — 16 引擎直搜 + 定时增量 + OpenAI API + 智能缓存 + 智能去重 + 质量标识
 
-> **免费中文搜索。10 引擎混动：搜狗HTTP / Bing CN / GitHub Issues / 头条 / 知乎 / 微信公众号（site:bing 直搜免反爬）/ 搜狗PW / 百度 / 360 / 微信PW / Bing国际。HTTP 引擎 <1秒直出，v13 智能缓存，v14 OpenAI API + 增量追加，v15 定时 cron 客户端，全面超越百度千帆 API。**
+> **免费中文搜索。16 引擎混动：搜狗HTTP / Bing CN / GitHub Issues / 头条 / 知乎 / 微信公众号（site:bing 直搜免反爬）/ 搜狗PW / 百度 / 360 / 微信PW / Bing国际 + 7 个 site:bing 新引擎（v15.1 csdn/cnblogs/eastmoney/cls/tencent_cloud/sina_finance/sohu）。HTTP 引擎 <1秒直出，v13 智能缓存，v14 OpenAI API + 增量追加，v15 定时 cron 客户端，v16 修复 sogou KeyError + 🌟🌟🌟 质量标识 + --explain 评分透明，全面超越百度千帆 API。**
 
-![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue) ![License MIT](https://img.shields.io/badge/license-MIT-green) ![Version 15.0](https://img.shields.io/badge/version-15.0-orange) ![Engines 10](https://img.shields.io/badge/engines-10-brightgreen)
+![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue) ![License MIT](https://img.shields.io/badge/license-MIT-green) ![Version 16.0](https://img.shields.io/badge/version-16.0-orange) ![Engines 16](https://img.shields.io/badge/engines-16-brightgreen)
 
 ---
 
-## v15.0 核心升级
+## v16.0 核心升级（2026-06-02）
 
 | 升级 | 价值 |
 |------|------|
-| **头条/知乎/微信直搜** (v15) | 3 个新引擎（site:bing 代理），100% 目标域，<1秒 |
+| **修复 sogou KeyError** (v16) | 反复刷 stderr 的"搜狗挂了"假象没了，6/6 mode smoke test 0 错误 |
+| **🌟🌟🌟 质量标识** (v16) | `cross_verified >= 3` 标 🌟🌟🌟，可视化"这条结果有多可信" |
+| **--explain 评分透明** (v16) | 调试模式显示每条结果的 `cross_verified=+40 · domain_auth=+8` 评分构成 |
+| **16 引擎** | v15.1 加 7 个 site:bing 代理 (csdn/cnblogs/eastmoney/cls/tencent_cloud/sina_finance/sohu) |
 | **定时增量客户端** (v15) | `cron_refresh.py` 异步并发拉多 query，JSONL 输出，可配 cron |
 | **OpenAI-compatible API** (v14) | FastAPI 5 endpoints，subagent/脚本可直接调用 |
 | **增量追加** (v14) | `force_refresh` 绕过缓存 + 与历史合并，节省 78% 时间 |

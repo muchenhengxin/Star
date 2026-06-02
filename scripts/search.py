@@ -37,7 +37,7 @@ PW_BASE_URLS = {
 
 # HTTP引擎（aiohttp，不需要浏览器）
 HTTP_BASE_URLS = {
-    'sogou':    'https://www.sogou.com/web?query={q}&ie=utf8',
+    # 'sogou': v16 移除 — PW_PARSERS 有但 HTTP_PARSERS 无，会 KeyError。sogou 走 PW 即可
     'bing_cn':  'https://cn.bing.com/search?q={q}&setlang=zh-cn&count=15',
     'bing_http': 'https://www.bing.com/search?q={q}&setlang=en&count=15',
     'github_issues': 'https://api.github.com/search/issues?q={q}+language:zh+archived:false&sort=updated&order=desc&per_page=15',
@@ -906,6 +906,7 @@ def main():
     p.add_argument('--top', type=int, default=10)
     p.add_argument('--list', action='store_true')
     p.add_argument('--no-resolve', action='store_true', help='禁用URL解析')
+    p.add_argument('--explain', action='store_true', help='v16: 调试模式，显示每条结果的评分构成与跨源验证详情')
     args = p.parse_args()
 
     if args.list:
@@ -937,10 +938,37 @@ def main():
             d = f' [{r["date"]}]' if r.get('date') else ''
             e = f' ({r["engine"]})'
             c = f' {r.get("category","🔗网页")}'
-            cross = ' ⭐' if r.get('cross_verified',0) > 0 else ''
-            print(f'{i}. {r["title"]}{d}{e}{c}{cross}')
+            # v16: 质量标识 — 跨源/跨引擎越多越可信
+            cv = r.get('cross_verified', 0) or 0
+            if cv >= 3:   badge = ' 🌟🌟🌟'
+            elif cv >= 2: badge = ' 🌟🌟'
+            elif cv >= 1: badge = ' 🌟'
+            else:         badge = ''
+            cross = badge if cv > 0 else ''
+            # v16: 总评分后缀（透明度）
+            score = r.get('score')
+            score_str = f' [score={score:.0f}]' if isinstance(score, (int, float)) else ''
+            print(f'{i}. {r["title"]}{d}{e}{c}{cross}{score_str}')
             print(f'   {r["url"][:100]}')
             if r.get('summary'): print(f'   {r["summary"][:150]}')
+            # v16: --explain 调试模式 — 显示评分构成
+            if args.explain:
+                expl_parts = []
+                if r.get('date'):
+                    expl_parts.append('date_score')
+                if r.get('url_type') == 'direct':
+                    expl_parts.append('direct_url')
+                cv = r.get('cross_verified', 0) or 0
+                if cv > 0:
+                    expl_parts.append(f'cross_verified=+{cv*10}')
+                da = _get_domain_authority(r.get('url',''))
+                if da:
+                    expl_parts.append(f'domain_auth=+{da}')
+                expl_parts.append(f'total={r.get("score", 0):.0f}')
+                if r.get('resolved'):
+                    expl_parts.append('resolved=true')
+                sep = ' · '
+                print('   📊 ' + sep.join(expl_parts))
 
 if __name__ == '__main__':
     main()
