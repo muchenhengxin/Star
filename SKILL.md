@@ -34,6 +34,25 @@ metadata:
 - **cron 客户端** `scripts/cron_refresh.py`：异步并发拉多 query，JSONL 输出
 - **Cron job 模板**：30 分钟跑 3 次，自动调 /v1/search/refresh
 
+### ⚠️ Cron 调度两大坑（2026-06-02 实战）
+
+用 `hermes cron create --script <path> --no-agent` 时：
+
+1. **脚本必须放 `~/.hermes/scripts/` 下** — 绝对路径/家目录相对路径都会被拒
+   ```
+   ✗ /Users/lizhe/.hermes/scripts/foo.sh
+   ✓ foo.sh  (相对 ~/.hermes/scripts/)
+   ```
+
+2. **Gateway 必须先启动**，cron 才会真正自动触发
+   ```
+   ✗ Gateway is not running — jobs won't fire automatically.
+   ✓ hermes gateway start       # macOS launchd
+   ✓ sudo hermes gateway install --system   # Linux 服务器
+   ```
+
+**新装 Hermes 必先 `hermes gateway install` + `start`，否则 cron job 永不跑。**
+
 ### v14.0 — OpenAI-compatible API 暴露 + 增量追加
 - **FastAPI server** `scripts/api_server.py` 启动 `python3 scripts/api_server.py --port 9800`
 - **5 个接口**：
@@ -79,6 +98,7 @@ metadata:
 - `references/v12-engine-addition-recipe.md` — 新 JSON API 引擎三步接入模板（GitHub Issues 类）
 - `references/dedup-merge-decision-log.md` — v12.2 智能去重算法的迭代决策与产品判断
 - `references/v14-api-and-incremental-merge.md` — v14 FastAPI wrapper + force_refresh 增量追加 + Playwright 长进程容错（CLI→API 暴露的通用 pattern）
+- `references/v15-site-bing-probe-results.md` — v15.1 27 域 site:bing 实测数据（哪些能拿到真实结果、哪些 Bing 索引不到）
 
 ## 引擎列表
 
@@ -218,6 +238,9 @@ hermes cronjob create --schedule "every 30m" --prompt "..." \
 - **搜狗/百度/360空结果** — 检查 stealth.js；清除缓存 `rm -f scripts/.search_cache.sqlite`
 - **速度慢(>10秒)** — `--mode quick` 0.5-1秒，或 `--engine bing_cn`
 - **v12.2 智能去重效果差** — 调整 `_dedup_v2` 的 `sim_threshold`（默认 0.5）
+- **site:bing 引擎 0 命中** — 正常！Bing 对中文站索引不全。先用 `references/v15-site-bing-probe-results.md` 查表看该站是否标记为"无效"
+- **本地 skill 目录被误删/丢失** — 从 GitHub 重建：`git clone https://github.com/muchenhengxin/Star.git ~/.hermes/skills/research/star-search`；再用 `git fetch --depth 10 && git reset --hard origin/main` 拉到最新 commit
+- **git push 报 "Device not configured"** — 多半是 `gh` CLI 没了（hermes 默认 credential.helper 指向它）。先 `git config --global --remove-section credential` 干掉坏的 helper，再用环境变量 `GH_TOKEN=...` 或 `git -c "url.https://<PAT>@github.com/.insteadOf=https://github.com" push` 注入 PAT。注意：fine-grained PAT 默认只 metadata:read，需在 GitHub 端为该 token 勾选 Repository permissions → Contents: Read and write 才能 push
 
 ## 架构
 
