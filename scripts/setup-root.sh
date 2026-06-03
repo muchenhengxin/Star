@@ -1,6 +1,6 @@
 #!/bin/bash
 # star-search v16.1 在 root context 启动（用现成 playwright+chromium）
-# 用法（恒星01 操作）:
+# 用法（协作同事操作）:
 #   sudo cp /home/ubuntu/star-search/scripts/api-server-root.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now api-server-root

@@ -1,6 +1,6 @@
 #!/bin/bash
-# star-search v16.1 部署脚本 — 在 62.234.39.247 上跑
-# 用法: ssh ubuntu@62.234.39.247 "bash ~/star-search/deploy.sh"
+# star-search v16.1 部署脚本 — 在腾讯云 ubuntu 服务器上跑
+# 用法: ssh ubuntu@<服务器IP> "bash ~/star-search/deploy.sh"
 set -e
 cd ~/star-search
 

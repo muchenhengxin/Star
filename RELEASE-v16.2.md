@@ -60,7 +60,7 @@ star-search **不是给人用的产品**，是**给 LLM agent 当工具**：
 ### 1. 公网 HTTPS 部署
 - `https://search.token-star.cn` 子域，Let's Encrypt 证书自动续期
 - 子域架构（不影响主域 token-star.cn 的 New API / Agent Platform）
-- FastAPI server 跑在 `62.234.39.247:5000`
+- FastAPI server 跑在腾讯云 ubuntu 用户 systemd (端口 5000)
 
 ### 2. Playwright 优雅降级
 - 11 HTTP 引擎在没浏览器的服务器上独立工作

@@ -19,9 +19,9 @@ metadata:
 **子域**：`https://search.token-star.cn`
 
 - **架构**：独立子域（不影响主域 token-star.cn 的 New API / Agent Platform）
-- **DNS**：犀牛加 A 记录 `search → 62.234.39.247`
+- **DNS**：A 记录 `search → 腾讯云服务器 IP`（犀牛加）
 - **证书**：Let's Encrypt 独立签发，自动续期
-- **API server**：FastAPI 跑在 `62.234.39.247:5000` (ubuntu 用户 systemd)
+- **API server**：FastAPI 跑在 ubuntu 用户 systemd (端口 5000)，外层 nginx 反代 443
 
 **5 个端点全部上线**：
 ```
@@ -64,7 +64,7 @@ async def _ensure_browser(pw):
 
 `scripts/deploy.sh` (1324 chars) — 完整部署流程（apt 装包 + 装 playwright + 启 systemd）
 `scripts/setup-root.sh` (2082 chars) — root context 启动 + apt 装 libatk (Playwright 系统依赖)
-`scripts/nginx-api.token-star.cn.conf` (1618 chars) — 实际未用（走恒星01 的 search.token-star.cn 子域方案）
+`scripts/nginx-api.token-star.cn.conf` (1618 chars) — 实际未用（走协作同事部署的 search.token-star.cn 子域方案）
 
 ### 实战耗时（公网 RTT）
 
