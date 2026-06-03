@@ -718,7 +718,7 @@ MODES = {
     'dev_rss':   ['sogou', 'baidu', 'github_issues', 'bing_cn', 'cnblogs', 'csdn',
                   'rss_ithome', 'rss_36kr', 'rss_sspai', 'rss_oschina', 'rss_woshipm'],
     'tech_news': ['cnblogs', 'csdn', 'rss_ithome', 'rss_36kr', 'rss_sspai', 'rss_oschina'],
-    'finance':   ['eastmoney', 'cls', 'sina_finance', 'rss_woshipm', 'rss_36kr'],
+    'finance':   ['eastmoney', 'cls', 'sina_finance', 'sohu', 'baidu', 'weixin', 'bing_cn'],  # v16.2.4: 去 RSS, 加 baidu/weixin/bing_cn/sohu 兜底
     'weixin_agg':['weixin', 'sogou', 'cls', 'woshipm'],  # v16.1: weixin (PW+HTTP双源) + sogou + cls + woshipm
 }
 
@@ -1008,6 +1008,24 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
         await _cleanup_browser()
 
     results = all_results
+
+    # v16.2.4: finance 模式兜底 — 如果 5 个 finance 引擎 < 3 条, 自动补 sogou/baidu/weixin (中文财经兜底)
+    if _used_smart and len(results) < 3:
+        print(f'  [finance-fallback] 触发: 当前 {len(results)} 条 < 3, 加跑 sogou/baidu/weixin/bing_cn', file=sys.stderr)
+        async with aiohttp.ClientSession() as session:
+            fb_engines = ('sogou', 'baidu', 'weixin', 'bing_cn')
+            fb_tasks = [_search_http(e, query, session) for e in fb_engines]
+            fb_raw = await asyncio.gather(*fb_tasks, return_exceptions=True)
+            # type: ignore[union-attr]  # fb_raw elements are (str, list) or Exception
+            for item in fb_raw:
+                if isinstance(item, BaseException):
+                    continue
+                if not item:
+                    continue
+                eng, r = item  # type: ignore[misc]
+                if r:
+                    results.extend(r)
+                    print(f'  [{eng}] 兜底 +{len(r)} 条', file=sys.stderr)
 
     # URL解析
     if resolve_urls:
