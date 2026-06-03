@@ -1,7 +1,7 @@
 ---
 name: star-search
-description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. v16.2.4 — 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode: eastmoney/cls/sina_finance) + 公网 HTTPS (search.token-star.cn) + 前端文人风 (蓝五角星大logo + Star-Search 大字 + 星空背景 + 知/思/答) + 守护进程 (脱离 systemd session) + OpenAI API + 增量追加。v12.2 智能去重+⭐跨源标记；v13 分桶 TTL 缓存 + query 归一化；v14 OpenAI API + 增量追加；v15 site:bing 代理；v15.1 +7 引擎 (csdn/cnblogs/eastmoney/cls/tencent_cloud/sina_finance/sohu)；v16.1 +5 RSS 引擎 (ithome/36kr/sspai/oschina/woshipm) + global 中英双源路由 + finance mode；v16.2 公网部署 + Playwright 优雅降级 (无 sudo 也跑)；v16.2.2 智能识别 (query 含 30+ 财经关键词自动走 finance 引擎)；v16.2.3 蓝五角星 (5 角) + 大字；v16.2.4 星空背景 (深空 + 26 颗星点 + 蓝紫光晕 + 6s 流星) + 大字升级 (text-7xl/8xl extrabold) + 全白横线。目标：赶超百度搜索的免费中文搜索引擎 + 给 LLM agent 当实时事实层。"
-version: 16.2.5
+description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. v17.0 — MCP 化! star-search 是标准 Model Context Protocol server, 暴露 4 个 tools (web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Cline/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . 同时保留 v16.2 全部能力: 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + 守护进程 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily)."
+version: 17.0.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -553,3 +553,98 @@ cp -r Star/* ~/.hermes/skills/research/star-search/
 ```
 
 > **下一步**：发布到 ClawHub v16.2.2；继续优化智能识别（垂类 mode chip 前端入口）。
+
+---
+
+# 🔥 v17.0.0 — MCP 化 (Model Context Protocol)
+
+**重磅升级**: star-search 现在是一个 **标准 MCP server** —— 任何 LLM agent (Claude Desktop / Cursor / Cline / Continue / Hermes) 都能直接 `web_search` / `web_search_news` / `web_search_finance` 当作工具调用。
+
+**目标**：**免费中文版 Tavily**（Tavily 收费，star-search 免费 + 中文特化）。
+
+## 4 个 MCP Tools
+
+| Tool | 用途 | 引擎 |
+|------|------|------|
+| `web_search` | 通用搜索 (智能识别) | 默认 deep mode + 财经 query 自动 finance |
+| `web_search_news` | 科技/AI/产品新闻 | csdn/cnblogs + 5 RSS (ithome/36kr/sspai/oschina/woshipm) |
+| `web_search_finance` | 财经/股票/A股专属 | eastmoney/cls/sina_finance/sohu/baidu/weixin/bing_cn |
+| `get_engines` | 列 16 引擎 + 5 模式 | 工具决策用 |
+
+## 部署方式
+
+### A. stdio (本地) — Claude Desktop / Hermes
+
+`~/.config/claude_desktop_config.json` (macOS) 或 `%APPDATA%/Claude/claude_desktop_config.json` (Windows)：
+
+```json
+{
+  "mcpServers": {
+    "star-search": {
+      "command": "python3",
+      "args": ["/path/to/mcp_server.py"],
+      "env": {
+        "STAR_SEARCH_API": "http://127.0.0.1:5000/v1/search"
+      }
+    }
+  }
+}
+```
+
+### B. HTTP/SSE (远程) — 任何 HTTP MCP client
+
+公网 endpoint：
+- **SSE**: `https://search.token-star.cn/mcp/sse`
+- **POST**: `https://search.token-star.cn/mcp/messages?session_id=<从 SSE 推的 endpoint URL 拿>`
+- **Health**: `https://search.token-star.cn/mcp/health`
+
+```python
+import aiohttp, json
+
+# 1. SSE 握手
+async with aiohttp.ClientSession() as s:
+    async with s.get("https://search.token-star.cn/mcp/sse") as r:
+        line = await r.content.readline()  # event: endpoint
+        line = await r.content.readline()  # data: <URL>
+        endpoint = line.decode().replace("data: ", "").strip()
+
+    # 2. initialize
+    req = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+           "params": {"protocolVersion": "2025-06-18"}}
+    await s.post(endpoint.replace("http://", "https://").replace(":80", ""),
+                 json=req)
+    # ... 读 SSE 响应, 拿 session_id
+    # 3. tools/call
+    req = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+           "params": {"name": "web_search",
+                      "arguments": {"query": "比亚迪股价"}}}
+    await s.post(messages_url, json=req)
+```
+
+## 启动服务器
+
+```bash
+# stdio (本地)
+python3 mcp_server.py
+
+# HTTP/SSE (公网, 端口 8765)
+python3 mcp_server.py --transport http --port 8765
+```
+
+## 实测结果
+
+| Tool | query | 耗时 | 结果 |
+|------|-------|------|------|
+| `web_search` | "比亚迪股价" | 0.85s | 7 条 0.85s（东方财富/新浪/雪球/同花顺/知乎）|
+| `web_search_finance` | "上证指数今日收盘" | 0.87s | 8 条 0.87s（4074.74）|
+| `web_search_news` | "AI 创业" | 0.28s | 8 条 IT之家科技新闻 |
+| `get_engines` | - | 0s | 16 引擎清单 |
+
+## 协议细节
+
+- **JSON-RPC 2.0** over stdio (一行一个 JSON) 或 HTTP/SSE
+- **protocolVersion**: 2025-06-18
+- **零依赖**: 纯 stdlib + aiohttp (服务器已装)
+- **HTTP 端点**: `/sse` (GET, 推送 endpoint) + `/messages?session_id=X` (POST) + `/health` (GET)
+- **结果格式**: `{type: "text", text: "🔍 找到 8 条..."}` 友好格式化
+- **错误处理**: HTTP 5xx / Timeout / Parse error 全部捕获, 返回 `{isError: true}` text
