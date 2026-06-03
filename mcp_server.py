@@ -1,5 +1,5 @@
 """
-star-search MCP Server v17.0
+star-search MCP Server v17.2
 零依赖: 用 stdio JSON-RPC 2.0 + aiohttp (SSE for HTTP transport)
 MCP 协议: https://modelcontextprotocol.io/specification/2025-06-18
 
@@ -32,7 +32,7 @@ STAR_SEARCH_API = os.environ.get(
 # ============ MCP 协议常量 ============
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "star-search"
-SERVER_VERSION = "17.0.0"
+SERVER_VERSION = "17.2.0"
 
 # ============ 4 个 Tools 定义 ============
 TOOLS_DEF = [
@@ -41,7 +41,8 @@ TOOLS_DEF = [
         "description": (
             "用 star-search (16 引擎: sogou/baidu/360/weixin/bing_cn/csdn/cnblogs/"
             "eastmoney/cls/tencent_cloud/sina_finance/sohu + 5 RSS) 搜索中文/英文/财经。"
-            "智能识别 query 自动用最佳引擎。返回 8-10 条去重结果 + 跨源验证 + 引擎标签。耗时 0.5-3s。"
+            "智能识别 query 自动用最佳引擎。v17.2 支持 answer=true 返回 LLM 总结的"
+            "200-400字中文答案 + 来源 (类似 Perplexity AI)。耗时: 普通 0.5-3s, 答案模式 2-4s。"
         ),
         "inputSchema": {
             "type": "object",
@@ -60,6 +61,11 @@ TOOLS_DEF = [
                 "force_refresh": {
                     "type": "boolean",
                     "description": "是否跳过缓存强制重搜 (默认 false)",
+                    "default": False
+                },
+                "answer": {
+                    "type": "boolean",
+                    "description": "v17.2: 是否返回 LLM 总结的中文答案 (200-400字 + 来源). 慢 2-4s, 适合需要直接答案的场景",
                     "default": False
                 }
             },
@@ -111,14 +117,17 @@ TOOLS_DEF = [
 # ============ 调 star-search API ============
 async def call_star_search_api(query: str, num_results: int = 8,
                                 force_refresh: bool = False,
-                                mode: Optional[str] = None) -> dict:
+                                mode: Optional[str] = None,
+                                answer: bool = False) -> dict:
     payload = {
         "query": query,
-        "num_results": num_results,
+        "top": num_results,
         "force_refresh": force_refresh,
     }
     if mode:
         payload["mode"] = mode
+    if answer:
+        payload["answer"] = True
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -135,7 +144,7 @@ async def call_star_search_api(query: str, num_results: int = 8,
         return {"error": f"{type(e).__name__}: {e}"}
 
 
-def format_results(data: dict) -> str:
+def format_results(data: dict, with_answer: bool = False) -> str:
     if "error" in data:
         return f"❌ Error: {data['error']}"
 
@@ -143,6 +152,25 @@ def format_results(data: dict) -> str:
     elapsed = data.get("elapsed_ms", 0)
     results = data.get("results", [])
 
+    # v17.2: 答案模式 (LLM 总结)
+    if with_answer and "answer" in data:
+        ans = data["answer"]
+        if ans.get("answer"):
+            lines = [
+                f"💡 **AI 答案** ({ans.get('elapsed_ms', 0)}ms, {ans.get('model', '?')}):\n",
+                f"{ans['answer']}\n",
+                f"---\n",
+                f"🔍 **参考来源** ({count} 条, 搜索 {elapsed}ms):\n",
+            ]
+            for i, r in enumerate(results, 1):
+                title = r.get("title", "(无标题)")
+                url = r.get("url", "")
+                engine = r.get("engine", "?")
+                lines.append(f"[{i}] {title}")
+                lines.append(f"    {engine} · 🔗 {url}\n")
+            return "\n".join(lines)
+
+    # 默认: 蓝链列表
     lines = [f"🔍 找到 {count} 条结果 ({elapsed}ms)\n"]
 
     for i, r in enumerate(results, 1):
@@ -223,12 +251,14 @@ async def handle_request(req: dict) -> Optional[dict]:
             args = params.get("arguments", {})
 
             if name == "web_search":
+                want_answer = args.get("answer", False)
                 data = await call_star_search_api(
                     query=args["query"],
                     num_results=args.get("num_results", 8),
-                    force_refresh=args.get("force_refresh", False)
+                    force_refresh=args.get("force_refresh", False),
+                    answer=want_answer
                 )
-                text = format_results(data)
+                text = format_results(data, with_answer=want_answer)
 
             elif name == "web_search_news":
                 data = await call_star_search_api(
@@ -395,7 +425,7 @@ async def run_http(port: int = 8765):
 
 # ============ Main ============
 def main():
-    parser = argparse.ArgumentParser(description="star-search MCP server v17.0")
+    parser = argparse.ArgumentParser(description="star-search MCP server v17.2")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--port", type=int, default=8765, help="HTTP port (only for --transport http)")
     parser.add_argument("--api", type=str, default=None, help="star-search API URL override")

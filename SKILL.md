@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. v17.0 — MCP 化! star-search 是标准 Model Context Protocol server, 暴露 4 个 tools (web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Cline/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . 同时保留 v16.2 全部能力: 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + 守护进程 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily)."
-version: 17.0.0
+version: 17.2.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -648,3 +648,92 @@ python3 mcp_server.py --transport http --port 8765
 - **HTTP 端点**: `/sse` (GET, 推送 endpoint) + `/messages?session_id=X` (POST) + `/health` (GET)
 - **结果格式**: `{type: "text", text: "🔍 找到 8 条..."}` 友好格式化
 - **错误处理**: HTTP 5xx / Timeout / Parse error 全部捕获, 返回 `{isError: true}` text
+
+---
+
+# 🚀 v17.2.0 — LLM 答案层 (Perplexity Mode)
+
+**重磅升级**: star-search 不只返 8 条蓝链，**直接给 1 段 AI 总结答案 + 来源**（Perplexity AI 风格）。
+
+## 核心特性
+
+- **诚实答案** > 编造答案: LLM 看到 8 条搜索结果，**有具体数字才写**，**没数据就告诉用户查行情网站/官方源**
+- **DeepSeek-V4-Flash** 总结（免费 via new-api 62.234.39.247:8080）
+- **2-3s** 生成答案
+- **4-5 源** 末尾标出
+
+## 3 种用法
+
+### 1. 搜索接口加 `answer=true`
+
+```bash
+curl -X POST https://search.token-star.cn/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "比亚迪股价", "top": 8, "answer": true}'
+```
+
+返回:
+```json
+{
+  "query": "比亚迪股价",
+  "count": 8,
+  "results": [...8 条蓝链...],
+  "answer": {
+    "answer": "比亚迪近期股价走势受多重消息影响...实时报价请查询东方财富...",
+    "model": "DeepSeek-V4-Flash",
+    "elapsed_ms": 2600,
+    "tokens": 678,
+    "sources": ["data.eastmoney.com", "tags.news.sina.com.cn", ...]
+  }
+}
+```
+
+### 2. 独立答案端点 `/v1/answer`
+
+```bash
+curl -X POST https://search.token-star.cn/v1/answer \
+  -H "Content-Type: application/json" \
+  -d '{"query": "今天有什么科技新闻", "results": [...8条结果...], "mode": "tech_news"}'
+```
+
+### 3. MCP tool 加 `answer: true`
+
+```python
+# Claude Desktop / Hermes agent
+await mcp.call("web_search", query="比亚迪股价", answer=True)
+```
+
+## 答案风格
+
+| Query 类型 | 答案行为 |
+|---|---|
+| 股价/财经 (有数据) | 直接报数字 + 来源 |
+| 股价/财经 (无数据) | 告诉用户查东方财富/新浪财经/同花顺，**不编** |
+| 指数/基金 | 找具体点位，没有就报"实时指数请查..." |
+| 科技/产品 | 突出事实要点 + 数字 (参数/价格/发布日期) |
+| 新闻/事件 | 谁/什么/什么时候 |
+| 旧数据 | 标注"截至 YYYY-MM-DD"或"近期"，不冒充今日 |
+
+## Prompt 核心（避免幻觉）
+
+- ⚠️ 数字必须从源文 snippet 中能直接找到, 否则不写
+- ⚠️ 如果搜索结果是新闻/资讯/公告, 不能编出具体价格数字
+- ⚠️ 多个来源矛盾 → 列出分歧, 不强行统一
+- ⚠️ 来源不够时建议查更权威的源 (官方/行情网站)
+
+## 实测结果
+
+| Query | 答案行为 | LLM 耗时 |
+|---|---|---|
+| "比亚迪股价" | "实时股价请查询东方财富/新浪财经..." | 2.6s |
+| "比亚迪 5月汽车销量" | "未找到...建议查产销快报..." | 2.9s |
+| "GPT-5 发布时间" | "OpenAI 尚未公布...以官方为准" | - |
+| "上证指数今日收盘" | 数字 + 来源 (有数据时) | 2.0s |
+
+## 下一步 (v17.3+)
+
+- 答案模式 UI: 大段文字 + 来源小字
+- 答案长度自适应: query 复杂 → 长答案, 简单 → 短答案
+- 答案来源点击直达
+- 多轮 query (答案 + 反问 "你想知道更多关于...?")
+

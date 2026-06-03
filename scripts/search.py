@@ -914,9 +914,12 @@ def _days_since(d):
 
 # ===== 主搜索函数 =====
 async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=True, recency=None, exact=False, sources=None, force_refresh=False):
+    # v17.2: 默认用原 query, 智能识别时改写
+    query_for_search = query
+
     # v14 增量追加：force_refresh 绕过缓存，拿到新结果后由调用方合并
     if not force_refresh:
-        cached = _cache_get(query, engine, mode, recency, num)
+        cached = _cache_get(query_for_search, engine, mode, recency, num)
         if cached is not None:
             print(f'  [cache] 命中{len(cached)}条，跳过搜索', file=sys.stderr)
             return cached[:num]
@@ -934,10 +937,19 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
             engines = MODES.get('finance', CN_ENGINES)  # v16.2.2: stock 实际是 news, 用 finance
             print(f'  [smart→finance] 命中财经关键词, 强制用 finance 引擎', file=sys.stderr)
             _used_smart = True
+            # v17.2: 如果 query 没含"行情/股价"等, 追加 "行情" 让搜索引擎返回实时报价页而非新闻
+            if not any(w in query for w in ('行情', '股价', '收盘', '开盘', '实时', '今日')):
+                query_for_search = query + ' 行情'
+            else:
+                query_for_search = query
         else:
             _used_smart = False
+            query_for_search = query
     else:
         _used_smart = False
+        query_for_search = query
+
+    # ... (下面要替换 search 用的 query 为 query_for_search)
 
     # 确定引擎列表
     if engine:
@@ -965,7 +977,7 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
     # 1) HTTP引擎搜索（aiohttp，无需浏览器）
     if http_engines:
         async with aiohttp.ClientSession() as session:
-            http_tasks = [_search_http(e, query, session) for e in http_engines]
+            http_tasks = [_search_http(e, query_for_search, session) for e in http_engines]
             http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
             for eng, results in http_results:
                 if results:
@@ -992,7 +1004,7 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
                 pw_pages.append(None)
         # 只对成功 new_page 的引擎跑任务
         active = [(e, p) for e, p in zip(pw_engines, pw_pages) if p is not None]
-        pw_tasks = [_search_pw(e, query, p) for e, p in active]
+        pw_tasks = [_search_pw(e, query_for_search, p) for e, p in active]
         pw_results = await asyncio.gather(*pw_tasks, return_exceptions=True) if pw_tasks else []
         for p in pw_pages:
             if p is None: continue
@@ -1014,7 +1026,7 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
         print(f'  [finance-fallback] 触发: 当前 {len(results)} 条 < 3, 加跑 sogou/baidu/weixin/bing_cn', file=sys.stderr)
         async with aiohttp.ClientSession() as session:
             fb_engines = ('sogou', 'baidu', 'weixin', 'bing_cn')
-            fb_tasks = [_search_http(e, query, session) for e in fb_engines]
+            fb_tasks = [_search_http(e, query_for_search, session) for e in fb_engines]
             fb_raw = await asyncio.gather(*fb_tasks, return_exceptions=True)
             # type: ignore[union-attr]  # fb_raw elements are (str, list) or Exception
             for item in fb_raw:
