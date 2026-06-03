@@ -1,16 +1,87 @@
 ---
 name: star-search
-description: "中文搜索 + 16 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量 + 质量标识。16引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信+CSDN+博客园+东方财富+财联社+腾讯云开发者+新浪财经+搜狐(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 site:bing 直搜+定时 cron 客户端，v15.1 新增 7 个 site 代理引擎，v16 修复 sogou KeyError + 质量标识🌟🌟🌟 + --explain 评分透明，v16.1 加 5 个 RSS 引擎 (ithome/36kr/sspai/oschina/woshipm) + global mode 中英双源路由 + cron_refresh 5 个 preset 模板。目标：赶超百度搜索的免费中文搜索引擎。"
-version: 16.1
+description: "中文搜索 + 16 引擎直搜 + 智能缓存 + OpenAI-compatible API + 定时增量 + 质量标识。16引擎：搜狗HTTP(<1秒)+Bing CN(直链)+GitHub Issues(开发者向)+头条+知乎+微信+CSDN+博客园+东方财富+财联社+腾讯云开发者+新浪财经+搜狐(site:bing代理，免反爬)+搜狗(Playwright)+百度(Playwright)+360(Playwright)+微信(Playwright)+Bing国际(HTTP)。v12.2 智能去重+⭐跨源标记，v13 分桶TTL缓存+query归一化，v14 OpenAI API 暴露+增量追加，v15 site:bing 直搜+定时 cron 客户端，v15.1 新增 7 个 site 代理引擎，v16 修复 sogou KeyError + 质量标识🌟🌟🌟 + --explain 评分透明，v16.1 加 5 个 RSS 引擎 (ithome/36kr/sspai/oschina/woshipm) + global mode 中英双源路由 + cron_refresh 5 个 preset 模板，v16.2 公网部署 (search.token-star.cn HTTPS) + 11 HTTP 引擎独立工作 (Playwright 优雅降级)。目标：赶超百度搜索的免费中文搜索引擎 + 给 LLM agent 当实时事实层。"
+version: 16.2
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug, RSS, Ithome, 36kr, Sspai, Oschina, Woshipm, Global]
+    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug, RSS, Ithome, 36kr, Sspai, Oschina, Woshipm, Global, Public, HTTPS, LLM-Tool, MCP-Ready]
     related_skills: [arxiv, blogwatcher, session_search, commercial-opportunity-research, ai-api-relay-station]
 ---
 
-# Star Search v16.0 — 16 引擎直搜 + 定时增量 + OpenAI API + 智能缓存 + 智能去重 + 质量标识
+# Star Search v16.2 — 公网 HTTPS 部署 + 11 HTTP 引擎独立工作
+
+## v16.2 — 公网部署 + 优雅降级（2026-06-03）
+
+### 公网部署
+
+**子域**：`https://search.token-star.cn`
+
+- **架构**：独立子域（不影响主域 token-star.cn 的 New API / Agent Platform）
+- **DNS**：犀牛加 A 记录 `search → 62.234.39.247`
+- **证书**：Let's Encrypt 独立签发，自动续期
+- **API server**：FastAPI 跑在 `62.234.39.247:5000` (ubuntu 用户 systemd)
+
+**5 个端点全部上线**：
+```
+https://search.token-star.cn/v1/health        → 200, 70ms
+https://search.token-star.cn/v1/search        → 200, ~300ms (tech_news 模式)
+https://search.token-star.cn/v1/search/refresh → 增量追加
+https://search.token-star.cn/v1/modes         → 11 modes
+https://search.token-star.cn/v1/engines       → 16 engines
+```
+
+### 引擎实际可用矩阵
+
+| 引擎类型 | 数量 | 公网状态 | 备注 |
+|---------|------|---------|------|
+| HTTP 引擎 | **11** | ✅ 全工作 | 搜狗HTTP/Bing CN/Bing HTTP/GitHub Issues/csdn/cnblogs/eastmoney/cls/tencent_cloud/sina_finance/sohu + 头条/知乎/微信 (site:bing) |
+| RSS 引擎 | **5** | ✅ 全工作 | rss_ithome/rss_36kr/rss_sspai/rss_oschina/rss_woshipm |
+| Playwright 引擎 | 4 | ⚠️ 需 sudo | sogou/baidu/360/weixin 浏览器抓取，CDN 下载被阻断 |
+
+### Playwright 优雅降级（v16.2 新增）
+
+**之前**：playwright 装不上 → 11 HTTP 引擎都报 `ImportError: playwright async_api`
+**现在**：try/except 导入 + `_PLAYWRIGHT_OK` 标志 + `_ensure_browser` 守卫
+
+```python
+try:
+    from playwright.async_api import async_playwright
+    _PLAYWRIGHT_OK = True
+except ImportError:
+    _PLAYWRIGHT_OK = False
+
+async def _ensure_browser(pw):
+    if not _PLAYWRIGHT_OK:
+        raise RuntimeError("playwright not available, use HTTP engines")
+    ...
+```
+
+**效果**：11 HTTP 引擎在 5000 端口独立工作，sogou/baidu/360/weixin 自动跳过（不抛异常），用户用 `--engine sogou` 才会触发 PW 缺失错误
+
+### 部署脚本
+
+`scripts/deploy.sh` (1324 chars) — 完整部署流程（apt 装包 + 装 playwright + 启 systemd）
+`scripts/setup-root.sh` (2082 chars) — root context 启动 + apt 装 libatk (Playwright 系统依赖)
+`scripts/nginx-api.token-star.cn.conf` (1618 chars) — 实际未用（走恒星01 的 search.token-star.cn 子域方案）
+
+### 实战耗时（公网 RTT）
+
+```
+tech_news "华为鸿蒙"     → 3 results, 436ms
+global  "GPT-4 vs Claude" → 3 results, 361ms
+health                   → 70ms
+```
+
+### 不动 / 未做的部分
+
+- ❌ 浏览器引擎完整启用（需 root sudo 装 chromium-headless-shell-1223 系统依赖）
+- ❌ 国际引擎（ddg/brave/scholar — 本机 GFW 限制，需 token-star.cn 备案 + 独立 IP）
+- ❌ MCP server 化（v17.0 计划）
+- ❌ Web UI（v18.0 计划）
+
+---
 
 ## v16.0 — 鲁棒性 + 可解释性（2026-06-02）
 
