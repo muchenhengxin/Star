@@ -1,4 +1,4 @@
-# Star Search v16.2 — 公网 HTTPS + 16 引擎 + 5 RSS + global 中英双源 + LLM 工具友好
+# Star Search v16.2.1 — 公网 HTTPS + 16 引擎 + 5 RSS + global 中英双源 + LLM 工具友好
 
 > **免费中文搜索，超越百度千帆 API**。16 引擎混动 + 5 RSS 引擎：搜狗HTTP / Bing CN / GitHub Issues / 头条 / 知乎 / 微信公众号（site:bing 直搜免反爬）/ 搜狗PW / 百度 / 360 / 微信PW / Bing国际 + 7 个 site:bing 新引擎（v15.1 csdn/cnblogs/eastmoney/cls/tencent_cloud/sina_finance/sohu）+ 5 个真 RSS 源（ithome/36kr/sspai/oschina/woshipm）。HTTP 引擎 <1秒直出，v13 智能缓存，v14 OpenAI API + 增量追加，v15 定时 cron 客户端，v16 修复 sogou KeyError + 🌟🌟🌟 质量标识 + --explain 评分透明，v16.1 + 5 RSS + global 中英双源 + cron 5 preset，v16.2 公网部署 (`https://search.token-star.cn`) + Playwright 优雅降级。
 
