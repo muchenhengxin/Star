@@ -119,21 +119,22 @@
 
   <!-- 首页 -->
   <section id="home-view" class="flex-1 flex flex-col items-center justify-center px-6">
-    <!-- v16.2 logo: SVG星 + Star-Search 品牌字 (DeepSeek 风格) -->
-    <div class="mb-12 flex items-center gap-3">
-      <svg class="w-9 h-9" viewBox="0 0 32 32" fill="none">
+    <!-- v16.2.3 logo: 蓝色五角星 (大) + Star-Search 品牌字 (大) 上下堆叠, 强冲击 -->
+    <div class="mb-14 flex flex-col items-center gap-5">
+      <svg class="w-20 h-20 md:w-24 md:h-24 drop-shadow-[0_0_25px_rgba(74,158,255,0.6)]" viewBox="0 0 32 32" fill="none">
         <defs>
           <linearGradient id="starGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#4a9eff"/>
-            <stop offset="100%" stop-color="#3b7dd8"/>
+            <stop offset="0%" stop-color="#60a5fa"/>
+            <stop offset="100%" stop-color="#2563eb"/>
           </linearGradient>
         </defs>
-        <path d="M16 1 L19 12.5 L31 16 L19 19.5 L16 31 L13 19.5 L1 16 L13 12.5 Z"
-              fill="url(#starGrad)"/>
+        <path d="M16 1 L19.5 12.5 L31 16 L19.5 19.5 L16 31 L12.5 19.5 L1 16 L12.5 12.5 Z"
+              fill="url(#starGrad)"
+              stroke="#3b82f6" stroke-width="0.5" stroke-linejoin="round"/>
       </svg>
-      <span class="text-2xl font-semibold tracking-tight">
-        <span class="text-white">Star</span><span class="text-gray-500">-</span><span class="text-white">Search</span>
-      </span>
+      <div class="text-5xl md:text-6xl font-bold tracking-tight">
+        <span class="text-white">Star</span><span class="text-blue-500">-</span><span class="text-white">Search</span>
+      </div>
     </div>
     <h1 class="text-3xl md:text-4xl font-light mb-16 flex items-center gap-8 md:gap-12">
       <span class="title-char">知你所问</span>
@@ -167,11 +168,18 @@
   <section id="results-view" class="hidden flex-1 px-6 md:px-12 py-8 max-w-5xl mx-auto w-full">
     <!-- 顶部: logo + 返回 + 搜索框 -->
     <div class="flex items-center gap-4 mb-8">
-      <a href="#" id="back-home" class="flex items-center gap-2 text-gray-400 hover:text-blue-400 transition">
-        <svg class="w-5 h-9" viewBox="0 0 32 32" fill="none">
-          <path d="M16 1 L19 12.5 L31 16 L19 19.5 L16 31 L13 19.5 L1 16 L13 12.5 Z" fill="currentColor"/>
+      <a href="#" id="back-home" class="flex items-center gap-2.5 text-blue-400 hover:text-blue-300 transition">
+        <svg class="w-8 h-8 drop-shadow-[0_0_12px_rgba(74,158,255,0.5)]" viewBox="0 0 32 32" fill="none">
+          <defs>
+            <linearGradient id="starGradR" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#60a5fa"/>
+              <stop offset="100%" stop-color="#2563eb"/>
+            </linearGradient>
+          </defs>
+          <path d="M16 1 L19.5 12.5 L31 16 L19.5 19.5 L16 31 L12.5 19.5 L1 16 L12.5 12.5 Z"
+                fill="url(#starGradR)"/>
         </svg>
-        <span class="text-lg font-semibold"><span class="text-white">Star</span><span class="text-gray-500">-</span><span class="text-white">Search</span></span>
+        <span class="text-2xl font-bold tracking-tight"><span class="text-white">Star</span><span class="text-blue-500">-</span><span class="text-white">Search</span></span>
       </a>
       <div class="flex-1 ml-4 search-box rounded-xl flex items-center px-5 py-3">
         <svg class="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
