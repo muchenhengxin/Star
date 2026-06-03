@@ -921,20 +921,39 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
             print(f'  [cache] 命中{len(cached)}条，跳过搜索', file=sys.stderr)
             return cached[:num]
 
+    # v16.2.2: 智能识别 — query 含财经词自动用 finance 引擎 (优先于 mode)
+    engines = CN_ENGINES  # 默认 fallback, 下面会覆盖
+    if not engine and not sources:
+        stock_kw = ('股票', '股价', '股市', 'A股', 'a股', '大盘', '上证', '深证', '沪深',
+                    '港股', '美股', '纳斯达克', '道琼斯', '标普', '基金',
+                    '行情', '涨停', '跌停', '个股', '板块',
+                    '开盘', '收盘', '今日股价', '今日行情', '今天股票', '今天股市',
+                    '基金净值', 'etf', 'ETF', '指数', '成份股', '龙虎榜',
+                    '财经', '股价', '市值', '财报')
+        if any(kw in query for kw in stock_kw):
+            engines = MODES.get('finance', CN_ENGINES)  # v16.2.2: stock 实际是 news, 用 finance
+            print(f'  [smart→finance] 命中财经关键词, 强制用 finance 引擎', file=sys.stderr)
+            _used_smart = True
+        else:
+            _used_smart = False
+    else:
+        _used_smart = False
+
     # 确定引擎列表
     if engine:
         engines = [engine]
-    elif mode:
+    elif not _used_smart and mode:
         engines = MODES.get(mode, MODES['deep'])
         # v16.1: global mode 动态语言路由（中文加 bing_cn 双源；纯英文只 bing_http）
         if mode == 'global':
             engines = _pick_global_engines(query)
-    else:
-        # 语言感知路由
+    elif not _used_smart and not mode:
+        # 语言感知路由 (只有 _used_smart=False 才走这里)
         if _has_chinese(query):
             engines = CN_ENGINES  # 中文查询：国内+Bing CN（HTTP）
         else:
             engines = GLOBAL_ENGINES_EN  # v16.1: 纯国际（删 GLOBAL_ENGINES）
+    # else: _used_smart=True, engines 已在上面 smart 分支设置好, 保留
 
     engines = [e for e in engines if e in PW_BASE_URLS or e in HTTP_BASE_URLS]
     pw_engines = [e for e in engines if e in PW_BASE_URLS]
@@ -952,10 +971,17 @@ async def search_async(query, engine=None, num=10, mode='deep', resolve_urls=Tru
                 if results:
                     all_results.extend(results)
 
-    # 2) Playwright引擎搜索
+    # 2) Playwright引擎搜索 (v16.2: 优雅降级 - 系统库缺失/lockfile 失败不阻断)
+    browser = None
+    ctx = None
     if pw_engines:
-        browser = await _ensure_browser()
-        ctx = await _get_context(browser)
+        try:
+            browser = await _ensure_browser()
+            ctx = await _get_context(browser)
+        except Exception as e:
+            print(f'  [pw] 浏览器启动失败: {e}，跳过 {len(pw_engines)} 个 playwright 引擎', file=sys.stderr)
+            pw_engines = []  # 全部跳过
+    if pw_engines and ctx is not None:
         # v14 fix: 容错 new_page 失败（context 偶发被 close）
         pw_pages = []
         for _ in pw_engines:

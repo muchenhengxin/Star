@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Search — 知你所问 · 思你所疑 · 答你所想</title>
+<meta name="description" content="博观约取 · 16 引擎实时中文搜索 · OpenAI 兼容 · 跨源验证">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body {
+    background: #0e0e10;
+    color: #e8e8e8;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .star {
+    color: #4a9eff;
+    text-shadow: 0 0 32px rgba(74, 158, 255, 0.4);
+  }
+  .title-char {
+    color: #e8e8e8;
+    font-weight: 300;
+    letter-spacing: 0.05em;
+    opacity: 0;
+    animation: fadeIn 0.8s forwards;
+  }
+  .title-char:nth-child(1) { animation-delay: 0.1s; }
+  .title-char:nth-child(2) { animation-delay: 0.3s; }
+  .title-char:nth-child(3) { animation-delay: 0.5s; }
+  .title-dot {
+    color: #6b6b6b;
+    font-weight: 200;
+  }
+  .seal {
+    color: #8b8b8b;
+    font-weight: 300;
+    letter-spacing: 0.6em;
+    padding-left: 0.6em; /* 视觉居中补偿字间距 */
+    opacity: 0;
+    animation: fadeIn 1s 0.9s forwards;
+  }
+  .search-box {
+    background: #1a1a1d;
+    border: 1px solid #2a2a2d;
+    transition: all 0.3s;
+  }
+  .search-box:focus-within {
+    border-color: #4a9eff;
+    box-shadow: 0 0 0 4px rgba(74, 158, 255, 0.08);
+  }
+  .result-card {
+    background: #1a1a1d;
+    border: 1px solid #2a2a2d;
+    transition: all 0.2s;
+  }
+  .result-card:hover {
+    border-color: #3a3a3d;
+    background: #1e1e22;
+  }
+  .score-badge {
+    background: rgba(74, 158, 255, 0.1);
+    color: #4a9eff;
+    font-weight: 500;
+  }
+  .verified-3 { color: #22c55e; }
+  .verified-2 { color: #84cc16; }
+  .verified-1 { color: #8b8b8b; }
+  .footer-link {
+    color: #6b6b6b;
+    transition: color 0.2s;
+  }
+  .footer-link:hover {
+    color: #4a9eff;
+  }
+  .engine-tag {
+    background: #2a2a2d;
+    color: #8b8b8b;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .spinner {
+    border: 2px solid #2a2a2d;
+    border-top-color: #4a9eff;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+  }
+  @keyframes fadeIn {
+    to { opacity: 1; }
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .result-card-anim {
+    animation: slideUp 0.4s forwards;
+  }
+  /* 隐藏滚动条但保持滚动 */
+  body::-webkit-scrollbar { width: 6px; }
+  body::-webkit-scrollbar-track { background: #0e0e10; }
+  body::-webkit-scrollbar-thumb { background: #2a2a2d; border-radius: 3px; }
+  body::-webkit-scrollbar-thumb:hover { background: #3a3a3d; }
+</style>
+</head>
+<body>
+
+<!-- 主体 -->
+<main id="app" class="flex-1 flex flex-col">
+
+  <!-- 首页 -->
+  <section id="home-view" class="flex-1 flex flex-col items-center justify-center px-6">
+    <!-- v16.2 logo: SVG星 + Star-Search 品牌字 (DeepSeek 风格) -->
+    <div class="mb-12 flex items-center gap-3">
+      <svg class="w-9 h-9" viewBox="0 0 32 32" fill="none">
+        <defs>
+          <linearGradient id="starGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#4a9eff"/>
+            <stop offset="100%" stop-color="#3b7dd8"/>
+          </linearGradient>
+        </defs>
+        <path d="M16 1 L19 12.5 L31 16 L19 19.5 L16 31 L13 19.5 L1 16 L13 12.5 Z"
+              fill="url(#starGrad)"/>
+      </svg>
+      <span class="text-2xl font-semibold tracking-tight">
+        <span class="text-white">Star</span><span class="text-gray-500">-</span><span class="text-white">Search</span>
+      </span>
+    </div>
+    <h1 class="text-3xl md:text-4xl font-light mb-16 flex items-center gap-8 md:gap-12">
+      <span class="title-char">知你所问</span>
+      <span class="title-dot">·</span>
+      <span class="title-char">思你所疑</span>
+      <span class="title-dot">·</span>
+      <span class="title-char">答你所想</span>
+    </h1>
+    <div class="w-full max-w-2xl search-box rounded-2xl flex items-center px-6 py-4">
+      <svg class="w-5 h-5 text-gray-500 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+      <input
+        id="query-input"
+        type="text"
+        placeholder="鸿蒙 PC vs Windows 12 生态对比..."
+        class="flex-1 bg-transparent outline-none text-lg placeholder-gray-600"
+        autocomplete="off"
+        autofocus
+      />
+      <button id="search-btn" class="ml-3 text-gray-500 hover:text-blue-400 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+        </svg>
+      </button>
+    </div>
+    <div class="seal text-lg mt-10">博 观 约 取</div>
+  </section>
+
+  <!-- 结果页 -->
+  <section id="results-view" class="hidden flex-1 px-6 md:px-12 py-8 max-w-5xl mx-auto w-full">
+    <!-- 顶部: logo + 返回 + 搜索框 -->
+    <div class="flex items-center gap-4 mb-8">
+      <a href="#" id="back-home" class="flex items-center gap-2 text-gray-400 hover:text-blue-400 transition">
+        <svg class="w-5 h-9" viewBox="0 0 32 32" fill="none">
+          <path d="M16 1 L19 12.5 L31 16 L19 19.5 L16 31 L13 19.5 L1 16 L13 12.5 Z" fill="currentColor"/>
+        </svg>
+        <span class="text-lg font-semibold"><span class="text-white">Star</span><span class="text-gray-500">-</span><span class="text-white">Search</span></span>
+      </a>
+      <div class="flex-1 ml-4 search-box rounded-xl flex items-center px-5 py-3">
+        <svg class="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+        <input
+          id="query-input-results"
+          type="text"
+          class="flex-1 bg-transparent outline-none text-base placeholder-gray-600"
+          autocomplete="off"
+        />
+        <button id="clear-btn" class="text-gray-600 hover:text-gray-400 transition text-xl leading-none">&times;</button>
+      </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div id="status-bar" class="text-sm text-gray-500 mb-6 flex items-center gap-3">
+      <span id="status-text">准备搜索...</span>
+    </div>
+
+    <!-- 结果列表 -->
+    <div id="results-list" class="space-y-4"></div>
+
+    <!-- 空状态 -->
+    <div id="empty-state" class="hidden text-center text-gray-600 mt-20">
+      <p class="text-lg">未找到结果</p>
+      <p class="text-sm mt-2">试试换个关键词</p>
+    </div>
+
+    <!-- 加载更多 -->
+    <div id="load-more" class="hidden text-center mt-8">
+      <button class="text-gray-500 hover:text-blue-400 transition text-sm">显示更多 ▼</button>
+    </div>
+  </section>
+
+</main>
+
+<!-- 底栏 -->
+<footer class="text-center py-6 text-xs text-gray-600 tracking-wide">
+  16 引擎 · 跨源验证 · OpenAI 兼容 ·
+  <a href="https://github.com/muchenhengxin/Star" target="_blank" class="footer-link">GitHub</a> ·
+  <a href="https://clawhub.ai/skill/star-search" target="_blank" class="footer-link">ClawHub</a> ·
+  <a href="#" id="api-doc-link" class="footer-link">API 文档</a>
+</footer>
+
+<script>
+  const API_BASE = window.location.origin;
+
+  const $ = (id) => document.getElementById(id);
+  const homeView = $('home-view');
+  const resultsView = $('results-view');
+  const queryInput = $('query-input');
+  const queryInputResults = $('query-input-results');
+  const searchBtn = $('search-btn');
+  const backHome = $('back-home');
+  const clearBtn = $('clear-btn');
+  const resultsList = $('results-list');
+  const statusBar = $('status-bar');
+  const statusText = $('status-text');
+  const emptyState = $('empty-state');
+  const apiDocLink = $('api-doc-link');
+
+  let currentQuery = '';
+  let currentResults = [];
+  let showCount = 10;
+
+  // 路由
+  function showHome() {
+    homeView.classList.remove('hidden');
+    homeView.classList.add('flex');
+    resultsView.classList.add('hidden');
+    queryInput.value = '';
+    setTimeout(() => queryInput.focus(), 100);
+  }
+
+  function showResults(query) {
+    homeView.classList.add('hidden');
+    homeView.classList.remove('flex');
+    resultsView.classList.remove('hidden');
+    queryInputResults.value = query;
+    setTimeout(() => queryInputResults.focus(), 100);
+  }
+
+  // 搜索
+  async function doSearch(query) {
+    if (!query.trim()) return;
+    currentQuery = query.trim();
+    showResults(currentQuery);
+    resultsList.innerHTML = '';
+    emptyState.classList.add('hidden');
+    statusBar.innerHTML = '<div class="spinner mr-2"></div><span>搜索中...</span>';
+
+    try {
+      const t0 = performance.now();
+      const r = await fetch(`${API_BASE}/v1/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: currentQuery, top: 20 })
+      });
+      const elapsed = Math.round(performance.now() - t0);
+      const j = await r.json();
+
+      if (!r.ok) {
+        statusText.textContent = `错误: ${j.detail || r.statusText}`;
+        return;
+      }
+
+      currentResults = j.results || [];
+      const verifiedCount = currentResults.filter(r => r.cross_verified >= 3).length;
+
+      statusText.innerHTML = `
+        ${currentResults.length} 条结果 ·
+        ${elapsed}ms ·
+        ${j.engines_used ? j.engines_used.length : 0} 引擎
+        ${verifiedCount > 0 ? ` · <span class="text-yellow-500">🌟🌟🌟</span>×${verifiedCount}` : ''}
+      `;
+
+      if (currentResults.length === 0) {
+        emptyState.classList.remove('hidden');
+        return;
+      }
+
+      renderResults();
+    } catch (e) {
+      statusText.textContent = `请求失败: ${e.message}`;
+    }
+  }
+
+  function renderResults() {
+    const to = Math.min(showCount, currentResults.length);
+    resultsList.innerHTML = '';
+
+    for (let i = 0; i < to; i++) {
+      const item = currentResults[i];
+      const card = document.createElement('a');
+      card.href = item.url;
+      card.target = '_blank';
+      card.rel = 'noopener noreferrer';
+      card.className = 'result-card result-card-anim block rounded-xl p-5 cursor-pointer no-underline';
+      card.style.animationDelay = `${i * 50}ms`;
+
+      const verified = item.cross_verified || 0;
+      const verifiedClass = verified >= 3 ? 'verified-3' : verified >= 2 ? 'verified-2' : 'verified-1';
+      const verifiedText = verified >= 3 ? `✓ ${verified} 源验证 🌟` : verified >= 1 ? `✓ ${verified} 源验证` : '单源';
+
+      const dateStr = item.date || '';
+      const sourceStr = item.source || '';
+      const engineTag = item.engine ? `<span class="engine-tag">${item.engine}</span>` : '';
+
+      card.innerHTML = `
+        <div class="flex items-start gap-4">
+          <div class="score-badge text-sm px-2 py-1 rounded flex-shrink-0">${item.score || 0}</div>
+          <div class="flex-1 min-w-0">
+            <h3 class="text-base font-medium text-gray-100 mb-2 leading-snug hover:text-blue-400 transition">${escapeHtml(item.title || '无标题')}</h3>
+            <p class="text-sm text-gray-500 mb-2 line-clamp-2">${escapeHtml(item.snippet || '')}</p>
+            <div class="flex items-center gap-3 text-xs text-gray-600 flex-wrap">
+              ${engineTag}
+              <span>${escapeHtml(sourceStr || new URL(item.url).hostname)}</span>
+              ${dateStr ? `<span>· ${escapeHtml(dateStr)}</span>` : ''}
+              <span class="${verifiedClass}">${verifiedText}</span>
+            </div>
+          </div>
+        </div>
+      `;
+      resultsList.appendChild(card);
+    }
+
+    if (to < currentResults.length) {
+      const loadMore = $('load-more');
+      loadMore.classList.remove('hidden');
+      loadMore.querySelector('button').onclick = () => {
+        showCount += 10;
+        renderResults();
+      };
+    } else {
+      $('load-more').classList.add('hidden');
+    }
+  }
+
+  function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  // 事件
+  searchBtn.onclick = () => doSearch(queryInput.value);
+  queryInput.onkeydown = (e) => { if (e.key === 'Enter') doSearch(queryInput.value); };
+  queryInputResults.onkeydown = (e) => { if (e.key === 'Enter') doSearch(queryInputResults.value); };
+  clearBtn.onclick = () => showHome();
+  backHome.onclick = (e) => { e.preventDefault(); showHome(); };
+  apiDocLink.onclick = (e) => {
+    e.preventDefault();
+    alert(`OpenAI 兼容 API:
+
+POST ${API_BASE}/v1/search
+Content-Type: application/json
+
+{
+  "query": "你的问题",
+  "top": 10
+}
+
+返回:
+{
+  "query": "...",
+  "count": 10,
+  "elapsed_ms": 350,
+  "results": [{ "title", "url", "snippet", "engine", "score", "cross_verified", "date" }, ...]
+}
+
+文档: https://github.com/muchenhengxin/Star`);
+  };
+
+  // URL hash 路由（可选）
+  if (location.hash) {
+    const q = decodeURIComponent(location.hash.slice(1));
+    if (q) doSearch(q);
+  }
+  window.addEventListener('hashchange', () => {
+    const q = decodeURIComponent(location.hash.slice(1));
+    if (q) doSearch(q);
+  });
+</script>
+
+</body>
+</html>

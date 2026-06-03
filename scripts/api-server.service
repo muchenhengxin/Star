@@ -1,0 +1,13 @@
+[Unit]
+Description=Star Search API Server (v16.1)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/star-search
+ExecStart=/usr/bin/python3 scripts/api_server.py --port 5000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -157,6 +157,20 @@ health                   → 70ms
   - `GET /v1/engines` 列出 7 引擎
 - **force_refresh 参数**：绕过缓存强制刷新，新结果标 `refresh=true`，历史标 `refresh=false`
 - **Playwright 容错**：new_page 失败时跳过该引擎（不抛异常）
+- **【v16.2 关键】Playwright 浏览器启动失败 → 整个 search_async 500**（2026-06-03 实战）：在无 sudo 的 ubuntu 服务器上，chromium 缺 `libatk-1.0.so.0` 等系统库，`_ensure_browser()` 抛 `TargetClosedError`，但 search_async 顶层没 catch → FastAPI 返回 500。**修复模式（已 ship 到 v16.2 search.py:953-988）**：
+   ```python
+   browser = None; ctx = None
+   if pw_engines:
+       try:
+           browser = await _ensure_browser()
+           ctx = await _get_context(browser)
+       except Exception as e:
+           print(f'  [pw] 浏览器启动失败: {e}，跳过 {len(pw_engines)} 个 playwright 引擎', file=sys.stderr)
+           pw_engines = []  # ← 关键：让 HTTP 引擎继续跑
+   if pw_engines and ctx is not None:  # ← 双条件 gate，不要单独 if pw_engines
+       # ... pw 引擎逻辑
+   ```
+   **3 个易错点**：(1) `browser = None; ctx = None` 必须在 try 块前初始化；(2) `if pw_engines and ctx is not None:` 而非 `if pw_engines:`（后者会在 except 后 NPE）；(3) `pw_engines = []` 在 except 内，让 HTTP 引擎结果不被丢弃。**实测**：降级后 7 个 HTTP 引擎仍返回 9 条结果（bing_cn 7 + RSS 2）。完整踩坑 + 验证脚本见 `devops/playwright-server-deployment` skill 第 3.1 节。
 - **节省时间**：重复查询/刷新场景下从 5.5秒 → 1.2秒（节省 78%）
 
 ### v13.0 — 智能缓存层

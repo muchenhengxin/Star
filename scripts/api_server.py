@@ -29,12 +29,13 @@ app = FastAPI(title="star-search API", version="16.1",
 # ===== 数据模型 =====
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500)
-    mode: str = Field(default="auto", description="auto/quick/deep/news/policy/stock/dev/global")
+    mode: str = Field(default="deep", description="deep/quick/news/policy/stock/dev/global/auto (auto=智能识别)")
     top: int = Field(default=8, ge=1, le=30)
     recency: str = Field(default=None, description="day/week/month/year")
     exact: bool = Field(default=False)
     engine: str = Field(default=None, description="单引擎：sogou_http/bing_cn/github_issues/sogou/baidu/360/weixin/bing_http")
     sources: list = Field(default=None, description="URL 包含某关键词才返回（多用于 dev/news 模式）")
+    force_refresh: bool = Field(default=False, description="绕过缓存（用于测试/查新结果）")
 
 class RefreshRequest(BaseModel):
     query: str
@@ -71,11 +72,13 @@ async def search(req: SearchRequest):
         if req.engine:
             results = await s.search_async(
                 query=req.query, engine=req.engine, num=req.top,
-                mode='quick', recency=req.recency, exact=req.exact, sources=req.sources)
+                mode='quick', recency=req.recency, exact=req.exact, sources=req.sources,
+                force_refresh=req.force_refresh)
         else:
             results = await s.search_async(
                 query=req.query, num=req.top, mode=req.mode,
-                recency=req.recency, exact=req.exact, sources=req.sources)
+                recency=req.recency, exact=req.exact, sources=req.sources,
+                force_refresh=req.force_refresh)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"search error: {e}")
 
