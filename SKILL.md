@@ -1,7 +1,7 @@
 ---
 name: star-search
-description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. v16.2.2 — 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode: eastmoney/cls/sina_finance) + 公网 HTTPS (search.token-star.cn) + 前端文人风 (Star-Search logo + 知/思/答) + 守护进程 (脱离 systemd session) + OpenAI API + 增量追加。v12.2 智能去重+⭐跨源标记；v13 分桶 TTL 缓存 + query 归一化；v14 OpenAI API + 增量追加；v15 site:bing 代理；v15.1 +7 引擎 (csdn/cnblogs/eastmoney/cls/tencent_cloud/sina_finance/sohu)；v16.1 +5 RSS 引擎 (ithome/36kr/sspai/oschina/woshipm) + global 中英双源路由 + finance mode；v16.2 公网部署 + Playwright 优雅降级 (无 sudo 也跑)；v16.2.2 智能识别 (query 含 30+ 财经关键词自动走 finance 引擎)。目标：赶超百度搜索的免费中文搜索引擎 + 给 LLM agent 当实时事实层。"
-version: 16.2.3
+description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. v16.2.4 — 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode: eastmoney/cls/sina_finance) + 公网 HTTPS (search.token-star.cn) + 前端文人风 (蓝五角星大logo + Star-Search 大字 + 星空背景 + 知/思/答) + 守护进程 (脱离 systemd session) + OpenAI API + 增量追加。v12.2 智能去重+⭐跨源标记；v13 分桶 TTL 缓存 + query 归一化；v14 OpenAI API + 增量追加；v15 site:bing 代理；v15.1 +7 引擎 (csdn/cnblogs/eastmoney/cls/tencent_cloud/sina_finance/sohu)；v16.1 +5 RSS 引擎 (ithome/36kr/sspai/oschina/woshipm) + global 中英双源路由 + finance mode；v16.2 公网部署 + Playwright 优雅降级 (无 sudo 也跑)；v16.2.2 智能识别 (query 含 30+ 财经关键词自动走 finance 引擎)；v16.2.3 蓝五角星 (5 角) + 大字；v16.2.4 星空背景 (深空 + 26 颗星点 + 蓝紫光晕 + 6s 流星) + 大字升级 (text-7xl/8xl extrabold) + 全白横线。目标：赶超百度搜索的免费中文搜索引擎 + 给 LLM agent 当实时事实层。"
+version: 16.2.4
 author: Hermes Agent
 license: MIT
 metadata:
