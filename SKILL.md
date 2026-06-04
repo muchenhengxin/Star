@@ -1,18 +1,21 @@
 ---
 name: star-search
-description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. v17.0 — MCP 化! star-search 是标准 Model Context Protocol server, 暴露 4 个 tools (web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Cline/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . 同时保留 v16.2 全部能力: 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + 守护进程 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily)."
-version: 17.2.0
+description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v17.3 — Perplexity Mode UI + MCP 化 + LLM 答案层**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v17.2 加 LLM 答案层 (DeepSeek-V4-Flash 总结, 诚实优先不编数字) + v17.3 前端 AI 答案卡片 (玻璃态 + 来源 chips + shimmer 动画). 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + 守护进程 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
+version: 17.5.0
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug, RSS, Ithome, 36kr, Sspai, Oschina, Woshipm, Global, Public, HTTPS, Frontend, SmartRouting, Finance]
-    related_skills: [arxiv, blogwatcher, session_search, commercial-opportunity-research, ai-api-relay-station]
+    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug, RSS, Ithome, 36kr, Sspai, Oschina, Woshipm, Global, Public, HTTPS, Frontend, SmartRouting, Finance, MCP, JSON-RPC, SSE, LLM-Answer, Perplexity-Mode, Honest-LLM, Honest-Search]
+    related_skills: [arxiv, blogwatcher, session_search, commercial-opportunity-research, ai-api-relay-station, building-mcp-servers, native-mcp]
     references:
       - site-bing-proxy-pattern.md
       - incremental-cache-pattern.md
       - v16-finance-mode-and-smart-routing.md
       - v16-public-deployment-and-daemon.md
+      - mcp-server-zero-deps.md
+      - llm-answer-honest-prompt.md
+      - v17-frontend-answer-card.md
 ---
 
 # Star Search v16.2.2 — 16 引擎 + 智能识别 (财经) + 公网 HTTPS + 前端 + 守护进程
@@ -736,4 +739,132 @@ await mcp.call("web_search", query="比亚迪股价", answer=True)
 - 答案长度自适应: query 复杂 → 长答案, 简单 → 短答案
 - 答案来源点击直达
 - 多轮 query (答案 + 反问 "你想知道更多关于...?")
+
+---
+
+# 🚀 v17.3.0 — 前端 AI 答案卡片 (Perplexity Mode UI)
+
+**前端 UI 完整**: 浏览器也能直接看 AI 答案, 不只 API/MCP 用户.
+
+## 状态栏右上 "✦ AI 答案" 开关
+
+- 默认开启 (Perplexity Mode)
+- 点击切换 ON/OFF
+- 关闭后只返 8 条蓝链 (省 2-3s LLM 耗时)
+
+## 答案卡片 (玻璃态)
+
+```
+┌────────────────────────────────────────┐
+│ ✦ AI 答案  DeepSeek-V4-Flash  2100ms   │  ← badge + 模型 + 耗时
+│                                          │
+│ 比亚迪实时股价未在搜索结果中...         │  ← 大段答案 (200-400 字)
+│ ...多方认为销量拐点确立...              │
+│                                          │
+│ ─────────────────────────────────────   │
+│ 来源                                     │
+│ [quote.eastmoney.com] [sina.com.cn]    │  ← 来源 chips (蓝色, 可点)
+│                                          │
+│ ▼ 查看下方原始来源 (8 条)               │  ← 滚到蓝链
+└────────────────────────────────────────┘
+```
+
+## 加载动画
+
+- shimmer 1.4s 渐变循环 (4 行占位)
+- 答案生成中, 卡片已显示, 不空等
+
+## 实测
+
+| 模式 | 耗时 | 行为 |
+|---|---|---|
+| AI 答案 ON (默认) | 3.4s | 答案卡 + 5 个来源 chips + 8 条蓝链 |
+| AI 答案 OFF | 0s (缓存) | 只 8 条蓝链 |
+
+---
+
+# 🚀 v17.4.0 — 相关问题 (Follow-up)
+
+**答案卡底部加 3 个紫色 chips**: 用户能一键深挖, 不用重新输入.
+
+## 行为
+
+```
+[来源 chips: 蓝色]
+[相关问题: 紫色]
+[→ 比亚迪 5月销量详情]  [→ 比亚迪 股价历史走势]  [→ 比亚迪 新能源车市占率]
+```
+
+- **点击 chip** → 自动 doSearch(那个 query) → 加载新答案
+- **生成方式**: LLM 单独调一次 (max_tokens=120, 30-50 tokens, +1-2s)
+- **失败降级**: 启发式模板 (`{query} 财务报表` 等)
+
+## 实现
+
+- `_generate_followups(query, answer, domains, category)` in `scripts/answer.py`
+- answer dict 加 `followups: [str, str, str]`
+- 失败 → 4 类别模板 (finance/tech/news/general)
+
+## 端到端测试
+
+```
+query: "比亚迪股价"
+answer: "..." (诚实: 实时股价请查行情网站)
+followups: ["比亚迪 5月销量详情", "比亚迪 股价历史走势", "比亚迪 新能源车市占率"]
+→ 3 个问题都相关且角度不同 (事实深挖 / 技术面 / 行业对比)
+```
+
+---
+
+# 🚀 v17.5.0 — 4 类 Prompt 模板 (答案质量分层)
+
+**核心问题**: 之前 1 个通用 prompt 答所有 query, 财经/科技/新闻/通用不分.
+
+**v17.5 解决**: query 分类, 4 个专用 prompt 模板, 答案风格差异化.
+
+## Query 分类 (`_classify_query`)
+
+| 类别 | 触发关键词 | Prompt 风格 |
+|---|---|---|
+| **finance** | 股票/股价/A股/上证/深证/基金/财报/纳斯达克... | 彭博/华尔街见闻 - **数字粗体 + 严禁编造** |
+| **tech** | GPT/AI/LLM/芯片/GPU/Python/CUDA/开源... | 36kr/极客公园 - **版本号精确 + 参数** |
+| **news** | 新闻/今天/最新/官方/宣布/突发/媒体... | 澎湃/财新 - **时间敏感 + 多角度** |
+| **general** | 其余 | Perplexity - **通用简洁** |
+
+## 关键差异
+
+| 维度 | 财经 | 科技 | 新闻 | 通用 |
+|---|---|---|---|---|
+| **数字处理** | **粗体**强制 | **版本号/参数** | **数据出处** | 突出即可 |
+| **诚实原则** | 严禁编造价格 | 区分官方/媒体 | 区分事实/评论 | 通用诚实 |
+| **结构** | 多空观点 | 核心+参数+影响 | 5W1H+多角度 | 自由 |
+| **来源偏好** | 东财/新浪 > 雪球 | 官方/知名媒体 | 主流官方媒体 | 不限 |
+
+## 实测对比
+
+```
+=== 比亚迪股价 (finance) ===
+"**5月**销量结束**8个月**下滑...
+多方认为销量拐点确立; 空方担忧行业价格战...
+来源: data.eastmoney.com / finance.sina.com.cn"
+
+=== Python 3.13 (tech) ===
+"Python **3.13** 于 **2024年10月** 发布...
+**JIT 编译器** + **自由线程**模式 (无需 GIL)...
+类型系统新增 `TypeAlias` 注解..."
+
+=== 特朗普推文 (news) ===
+"当地时间**2025-04-04**晚...连发数十条推文...
+支持者认为反映基层不满; 批评者指出数据存出入 (3.9% 失业率)..."
+
+=== 如何煮咖啡 (general) ===
+"抱歉, 提供的搜索结果不相关...请换关键词..."
+```
+
+## 端到端
+
+- 4 类 query 全部识别正确
+- 答案风格差异化
+- 端到端 ~4s (search 1s + LLM 3s)
+- LLM 选型不变: DeepSeek-V4-Flash (新-API 免费)
 

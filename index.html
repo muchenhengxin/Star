@@ -210,6 +210,28 @@
     border-color: rgba(96, 165, 250, 0.5);
     transform: translateY(-1px);
   }
+  /* v17.4: 相关问题 chip (紫色系, 跟来源蓝色区别) */
+  .answer-followup-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    background: rgba(168, 85, 247, 0.1);
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    color: #d8b4fe;
+    font-size: 12px;
+    border-radius: 999px;
+    transition: all 0.2s;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .answer-followup-chip:hover {
+    background: rgba(168, 85, 247, 0.2);
+    border-color: rgba(168, 85, 247, 0.6);
+    color: #f3e8ff;
+    transform: translateY(-1px);
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.3);
+  }
   /* shimmer: 答案加载中 */
   .answer-shimmer {
     background: linear-gradient(90deg, rgba(96,165,250,0.05) 25%, rgba(96,165,250,0.2) 50%, rgba(96,165,250,0.05) 75%);
@@ -319,21 +341,25 @@
       </span>
     </div>
 
-    <!-- AI 答案卡片 (v17.3) -->
+    <!-- v17.3 AI 答案卡片 -->
     <div id="answer-card" class="hidden mb-8">
       <div class="answer-card-inner rounded-2xl p-6 md:p-8">
-        <div class="flex items-center gap-2 mb-4">
+        <div class="flex items-center gap-3 mb-4">
           <span class="answer-badge">✦ AI 答案</span>
-          <span id="answer-model" class="text-xs text-gray-500"></span>
-          <span id="answer-elapsed" class="text-xs text-gray-600 ml-auto"></span>
+          <span id="answer-model" class="text-xs text-gray-400"></span>
+          <span id="answer-elapsed" class="text-xs text-gray-500 ml-auto"></span>
         </div>
-        <div id="answer-text" class="answer-text text-gray-100 text-base md:text-lg leading-relaxed mb-5"></div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs text-gray-500">来源:</span>
-          <div id="answer-sources" class="flex flex-wrap gap-2"></div>
+        <div id="answer-text" class="text-gray-100 text-[15px] leading-relaxed mb-5 answer-text"></div>
+        <div class="border-t border-gray-700/50 pt-4">
+          <div class="text-xs text-gray-500 mb-2">来源</div>
+          <div id="answer-sources" class="flex flex-wrap gap-2 mb-3"></div>
+          <div id="answer-followups-wrap" class="hidden mt-4">
+            <div class="text-xs text-gray-500 mb-2">相关问题</div>
+            <div id="answer-followups" class="flex flex-wrap gap-2"></div>
+          </div>
         </div>
         <button id="answer-show-sources-btn" class="hidden mt-3 text-xs text-blue-400 hover:text-blue-300 transition">
-          ▼ 查看下方原始来源 (8 条)
+          ▼ 查看下方原始来源 (<span id="answer-sources-count">0</span> 条)
         </button>
       </div>
     </div>
@@ -376,7 +402,9 @@
         model: 'DeepSeek-V4-Flash',
         elapsed_ms: 2100,
         tokens: 412,
-        sources: ['quote.eastmoney.com', 'finance.sina.com.cn', '36kr.com', 'finance.ifeng.com']
+        sources: ['quote.eastmoney.com', 'finance.sina.com.cn', '36kr.com', 'finance.ifeng.com'],
+        category: 'finance',
+        followups: ['上证指数 历史走势', '上证指数 vs 纳斯达克', 'CPO 概念股龙头']
       },
       results: [
         { title: '上证指数 (000001) 4057.74 (-0.27%) — 东方财富网', url: 'https://quote.eastmoney.com/zs000001.html', engine: 'eastmoney', score: 96, cross_verified: 4, source: 'quote.eastmoney.com', date: '2026-06-03', snippet: '今日收盘 4057.74 点, 跌幅 0.27%, 成交量 2865 亿' },
@@ -549,10 +577,33 @@
       });
     }
 
+    // v17.4: 相关问题 chips (点 chip 触发新搜索)
+    const followupsWrap = $('answer-followups-wrap');
+    const followupsEl = $('answer-followups');
+    followupsEl.innerHTML = '';
+    if (a.followups && a.followups.length) {
+      a.followups.forEach(q => {
+        const chip = document.createElement('a');
+        chip.href = '#';
+        chip.className = 'answer-followup-chip';
+        chip.textContent = '→ ' + q;
+        chip.title = '点击搜索: ' + q;
+        chip.onclick = (e) => {
+          e.preventDefault();
+          doSearch(q);  // 直接触发新搜索
+        };
+        followupsEl.appendChild(chip);
+      });
+      followupsWrap.classList.remove('hidden');
+    } else {
+      followupsWrap.classList.add('hidden');
+    }
+
     // 查看下方来源按钮
     const btn = $('answer-show-sources-btn');
     if (currentResults.length > 0) {
       btn.classList.remove('hidden');
+      $('answer-sources-count').textContent = currentResults.length;
       btn.onclick = () => {
         $('results-list').scrollIntoView({ behavior: 'smooth', block: 'start' });
       };
