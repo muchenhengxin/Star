@@ -210,6 +210,29 @@
     border-color: rgba(96, 165, 250, 0.5);
     transform: translateY(-1px);
   }
+  /* v17.7: 内联引用 [N] chip (青绿色, 区别于蓝色来源/紫色 followup) */
+  .answer-citation-chip {
+    display: inline-block;
+    padding: 1px 5px;
+    margin: 0 1px;
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #86efac;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    text-decoration: none;
+    vertical-align: super;
+    transition: all 0.15s;
+    line-height: 1.2;
+  }
+  .answer-citation-chip:hover {
+    background: rgba(34, 197, 94, 0.3);
+    border-color: rgba(34, 197, 94, 0.6);
+    color: #bbf7d0;
+    transform: translateY(-1px);
+  }
+
   /* v17.4: 相关问题 chip (紫色系, 跟来源蓝色区别) */
   .answer-followup-chip {
     display: inline-flex;
@@ -396,9 +419,16 @@
       query: '上证指数',
       count: 6,
       elapsed_ms: 320,
-      engines_used: ['eastmoney', 'sina_finance', 'rss_36kr', 'rss_woshipm'],
-      answer: {
-        answer: '上证指数今日收盘 4057.74 点, 跌幅 0.27%, 成交量约 2865 亿元。A 股三大指数涨跌不一, 深证成指 +0.18% 略涨, CPO 概念股领涨。\n\n来源: quote.eastmoney.com / finance.sina.com.cn / 36kr.com',
+        followups: ['上证指数 历史走势', '上证指数 vs 纳斯达克', 'CPO 概念股龙头'],
+        citations: {
+          1: { title: '今日A股收评：上证指数缩量震荡_东方财富', url: 'https://quote.eastmoney.com/a/202511/1.html' },
+          2: { title: '上证指数 - 新浪财经', url: 'https://finance.sina.com.cn/realstock/company/sh000001' },
+          3: { title: '36kr 财经 - 今日财经热点', url: 'https://36kr.com/finance' },
+          4: { title: '上海证券交易所', url: 'https://www.sse.com.cn' },
+          5: { title: '百度股市通 - 上证指数', url: 'https://gupiao.baidu.com' }
+        },
+        answer: {
+          answer: '上证指数今日收报 4057.74 点, 跌幅 0.27%, 成交量约 2865 亿元。A 股三大指数涨跌不一, 深证成指 +0.18% 略涨, CPO 概念股领涨[1][3], 银行股表现疲软[2]。\n\n来源: quote.eastmoney.com / finance.sina.com.cn / 36kr.com',
         model: 'DeepSeek-V4-Flash',
         elapsed_ms: 2100,
         tokens: 412,
@@ -550,6 +580,24 @@
     }
   }
 
+  // v17.7: 把 answer 里的 [N] 转成可点击 chip
+  function renderAnswerTextWithCitations(answer, citations) {
+    if (!answer) return '';
+    // 用 [N] split, 然后给 [N] 套 chip
+    const parts = answer.split(/(\[\d+\])/g);
+    return parts.map(part => {
+      const m = part.match(/^\[(\d+)\]$/);
+      if (m) {
+        const n = m[1];
+        const cite = citations && citations[n];
+        const title = cite ? cite.title : `来源 ${n}`;
+        const url = cite ? cite.url : '#';
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="answer-citation-chip" title="${title.replace(/"/g, '&quot;')}">[${n}]</a>`;
+      }
+      return part;
+    }).join('');
+  }
+
   // v17.3: 渲染 AI 答案卡片
   function renderAnswer() {
     const answerCard = $('answer-card');
@@ -558,9 +606,11 @@
       return;
     }
     const a = currentAnswer;
-    $('answer-text').textContent = a.answer;
+    // v17.7: 用 citations 渲染
+    $('answer-text').innerHTML = renderAnswerTextWithCitations(a.answer, a.citations || {});
     $('answer-model').textContent = a.model || 'AI';
-    $('answer-elapsed').textContent = a.elapsed_ms ? `${a.elapsed_ms}ms · ${a.tokens || 0} tokens` : '';
+    const elapsedText = a.elapsed_ms ? `${a.elapsed_ms}ms · ${a.tokens || 0} tokens` : '';
+    $('answer-elapsed').textContent = elapsedText + (a.cached ? ' · ⚡cached' : '');
 
     // 来源 chips
     const sourcesEl = $('answer-sources');
