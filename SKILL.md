@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.6 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-46: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.6.1
+version: 20.7.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -160,27 +160,118 @@ python3 search.py "它和特斯拉比呢" --session mysession
 python3 search.py "比亚迪股价" --star
 ```
 
-### 4. MCP 接入（Claude Desktop / Cursor / Hermes）
+### 4. MCP 接入（Claude Desktop / Cursor / Hermes / Cline / Continue）
+
+#### 4.1 stdio 模式（本地，最简单）
+
+**Claude Desktop 配置**：
 
 ```json
-// ~/.config/claude_desktop_config.json
+// macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+// Windows: %APPDATA%/Claude/claude_desktop_config.json
 {
   "mcpServers": {
     "star-search": {
-      "command": "python3",
-      "args": ["/path/to/mcp_server.py"],
+      "command": "/usr/bin/python3",
+      "args": ["/home/ubuntu/star-search/mcp/mcp_server.py"],
       "env": {
-        "STAR_SEARCH_API": "http://127.0.0.1:<api-port>/v1/search"
+        "STAR_SEARCH_API": "http://127.0.0.1:5000/v1/search",
+        "PYTHONPATH": "/home/ubuntu/.local/lib/python3.10/site-packages"
       }
     }
   }
 }
 ```
 
-公网 SSE：
+**Hermes agent / Cursor / Cline**：
+
+```json
+{
+  "mcpServers": {
+    "star-search": {
+      "command": "python3",
+      "args": ["/path/to/mcp_server.py"],
+      "env": {
+        "STAR_SEARCH_API": "http://127.0.0.1:5000/v1/search"
+      }
+    }
+  }
+}
 ```
-SSE:   https://search.token-star.cn/mcp/sse
-POST:  https://search.token-star.cn/mcp/messages?session_id=<从 SSE 推的 endpoint URL 拿>
+
+**关键**：
+- `PYTHONPATH` 必须含 aiohttp 所在 venv 路径（本地开发要装 `pip install aiohttp`）
+- `STAR_SEARCH_API` 指向你的 star-search API server（默认 `http://127.0.0.1:5000/v1/search`）
+- 重启 Claude Desktop 生效
+
+#### 4.2 SSE 公网模式（远程，跨设备）
+
+**公网端点**：
+```
+Health: https://search.token-star.cn/mcp/health
+SSE:    https://search.token-star.cn/mcp/sse
+POST:   https://search.token-star.cn/mcp/messages?session_id=<从 SSE 推的 endpoint URL 拿>
+```
+
+**Python client 范例**：
+
+```python
+import aiohttp, json
+
+async with aiohttp.ClientSession() as s:
+    # 1. SSE 握手 - 服务端推 "event: endpoint\ndata: <URL>?session_id=XXX"
+    async with s.get("https://search.token-star.cn/mcp/sse") as r:
+        line = await r.content.readline()  # event: endpoint
+        line = await r.content.readline()  # data: <URL>?session_id=XXX
+        endpoint = line.decode().replace("data: ", "").strip()
+
+    # 2. initialize
+    req = {
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18"}
+    }
+    await s.post(endpoint, json=req)
+
+    # 3. 读 SSE 响应拿 session_id
+    # ...
+
+    # 4. tools/call
+    req = {
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "web_search", "arguments": {"query": "比亚迪股价"}}
+    }
+    await s.post(messages_url, json=req)
+```
+
+**关键坑** — 客户端不要写死 session_id：
+- **必须用 server 推的 session_id**（从 SSE endpoint URL 提取 `?session_id=XXX`）
+- **不要** 自己生成 UUID
+- 写死 → 必 400 `Invalid session_id`
+
+#### 4.3 实测性能
+
+| Tool | query | 耗时 | 结果 |
+|---|---|---|---|
+| `web_search` | "比亚迪股价" | 301ms | 8 条 (新浪/东财/知乎/investing/雪球/同花顺/9fzt) |
+| `web_search_finance` | "上证指数今日收盘" | 870ms | 8 条 (4074.74 等) |
+| `web_search_news` | "AI 创业" | 280ms | 8 条 IT之家科技新闻 |
+| `get_engines` | - | <10ms | 16 引擎清单 |
+
+#### 4.4 4 个 MCP Tools
+
+| Tool | 用途 | 引擎 |
+|---|---|---|
+| `web_search` | 通用搜索（智能识别财经/英文/中文）| 默认 deep + 财经自动 finance |
+| `web_search_news` | 科技/AI/产品新闻 | csdn/cnblogs + 5 RSS (ithome/36kr/sspai/oschina/woshipm) |
+| `web_search_finance` | 财经/股票/A股专属 | eastmoney/cls/sina_finance/sohu/baidu/weixin/bing_cn |
+| `get_engines` | 列 16 引擎 + 5 模式（agent 决策用）| - |
+
+**LLM agent 调法**（Claude Desktop / Cursor）：
+```
+"帮我搜一下比亚迪股价，用 web_search 工具"
+"用 web_search_finance 找上证指数"
+"用 web_search_news 找今天 AI 创业新闻"
+"列出所有引擎用 get_engines"
 ```
 
 ---
@@ -370,7 +461,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.6.0** | 2026-06-15 | **实战 35-46 一次性打包**：速度优化 6s→0.2s + SSE 流式 + 多轮对话 + 终极稳定性 + 学术/代码 + 结构化输出 4 格式 + 历史/收藏 + 监控告警 + Prometheus + Grafana |
+| **v20.7.0** | 2026-06-15 | **实战 47-48：Sourcegraph 4 bug 修复 + Claude Desktop MCP 集成教程 + 1M token API 限流** |
 | v17.7.0 | 2026-06-04 | 答案缓存（236x speedup）+ 内联引用（Perplexity Mode 完整体验）|
 | v17.5.0 | 2026-06-04 | 4 类 Prompt 模板（finance/tech/news/general）|
 | v17.4.0 | 2026-06-04 | 多轮相关问题（3 个 followup chips）|
