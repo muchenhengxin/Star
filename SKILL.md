@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.6 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-46: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.7.0
+version: 20.8.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -461,7 +461,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.7.0** | 2026-06-15 | **实战 47-48：Sourcegraph 4 bug 修复 + Claude Desktop MCP 集成教程 + 1M token API 限流** |
+| **v20.8.0** | 2026-06-15 | **实战 49：i18n 英文版**（`SKILL_EN.md` 22KB / 翻译 v20.7 全部能力 / ClawHub 海外 discover 友好）|
 | v17.7.0 | 2026-06-04 | 答案缓存（236x speedup）+ 内联引用（Perplexity Mode 完整体验）|
 | v17.5.0 | 2026-06-04 | 4 类 Prompt 模板（finance/tech/news/general）|
 | v17.4.0 | 2026-06-04 | 多轮相关问题（3 个 followup chips）|
@@ -487,7 +487,9 @@ star-search/
 
 ---
 
-## 📚 实战笔记（v20 实战 35-46）
+## 📚 实战笔记（v20 实战 35-49）
+
+实战 49 加 i18n 英文版（`SKILL_EN.md` 22KB / 完整翻译 v20.7 全部能力）。
 
 以下是实战过程的详细笔记，对应每个升级的 troubleshooting 路径。
 
