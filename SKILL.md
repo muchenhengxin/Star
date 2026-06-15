@@ -1,12 +1,12 @@
 ---
 name: star-search
-description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v17.3 — Perplexity Mode UI + MCP 化 + LLM 答案层**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v17.2 加 LLM 答案层 (DeepSeek-V4-Flash 总结, 诚实优先不编数字) + v17.3 前端 AI 答案卡片 (玻璃态 + 来源 chips + shimmer 动画). 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + 守护进程 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 17.7.0
+description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.6 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-46: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
+version: 20.6.0
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug, RSS, Ithome, 36kr, Sspai, Oschina, Woshipm, Global, Public, HTTPS, Frontend, SmartRouting, Finance, MCP, JSON-RPC, SSE, LLM-Answer, Perplexity-Mode, Honest-LLM, Honest-Search]
+    tags: [Search, Web, Bing, Sogou, Baidu, 360, Weixin, Toutiao, Zhihu, GitHub, China, Hybrid, HTTP, Playwright, Chinese, Cache, API, OpenAI, Cron, Incremental, CSDN, Cnblogs, Eastmoney, CLS, Sina, Sohu, Quality, Explain, Debug, RSS, Ithome, 36kr, Sspai, Oschina, Woshipm, Global, Public, HTTPS, Frontend, SmartRouting, Finance, MCP, JSON-RPC, SSE, LLM-Answer, Perplexity-Mode, Honest-LLM, Honest-Search, v20, Speed-Optimization, Streaming, Multi-Turn, Monitoring, Prometheus, Grafana, Structured-Output, Favorites, Academic-Search, Code-Search]
     related_skills: [arxiv, blogwatcher, session_search, commercial-opportunity-research, ai-api-relay-station, building-mcp-servers, native-mcp]
     references:
       - site-bing-proxy-pattern.md
@@ -93,7 +93,7 @@ elif not _used_smart and not mode:
     ↓ (nginx + LE cert)
 [static /var/www/star-search/index.html]  ← 前端文人风
     ↓ (location /v1/)
-[FastAPI 127.0.0.1:5000]  ← api_server.py (守护进程)
+[FastAPI 127.0.0.1:<api-port>]  ← api_server.py (守护进程)
     ↓
 [search.py 16 引擎]
 ```
@@ -111,7 +111,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/search.token-star.cn/fullchain.pem;
 
     location /v1/ {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:<api-port>;
         proxy_set_header Host $host;
         proxy_read_timeout 60s;
         proxy_http_version 1.1;
@@ -149,7 +149,7 @@ disown
 **验证**：`ps -ef | grep api_server` 看 PPID 列 = 1 = 永驻。
 
 **nginx 502 定位步骤**：
-1. `curl -s --max-time 3 http://127.0.0.1:5000/v1/health` — 内网 200？
+1. `curl -s --max-time 3 http://127.0.0.1:<api-port>/v1/health` — 内网 200？
 2. 内网 200 但公网 502 — nginx `error.log` 看 `connect() failed (111: Connection refused)` — upstream 端口没在 LISTEN
 3. 原因：systemd unit 在 restart，端口空 1-2 秒，请求撞上
 4. **修法**：换守护进程方式
@@ -232,7 +232,7 @@ elif not _used_smart and not mode:
     ↓ (nginx + LE cert)
 [static /var/www/star-search/index.html]  ← 前端文人风
     ↓ (location /v1/)
-[FastAPI 127.0.0.1:5000]  ← api_server.py (守护进程)
+[FastAPI 127.0.0.1:<api-port>]  ← api_server.py (守护进程)
     ↓
 [search.py 16 引擎]
 ```
@@ -250,7 +250,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/search.token-star.cn/fullchain.pem;
 
     location /v1/ {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:<api-port>;
         proxy_set_header Host $host;
         proxy_read_timeout 60s;
         proxy_http_version 1.1;
@@ -288,7 +288,7 @@ disown
 **验证**：`ps -ef | grep api_server` 看 PPID 列 = 1 = 永驻。
 
 **nginx 502 定位步骤**：
-1. `curl -s --max-time 3 http://127.0.0.1:5000/v1/health` — 内网 200？
+1. `curl -s --max-time 3 http://127.0.0.1:<api-port>/v1/health` — 内网 200？
 2. 内网 200 但公网 502 — nginx `error.log` 看 `connect() failed (111: Connection refused)` — upstream 端口没在 LISTEN
 3. 原因：systemd unit 在 restart，端口空 1-2 秒，请求撞上
 4. **修法**：换守护进程方式
@@ -588,7 +588,7 @@ cp -r Star/* ~/.hermes/skills/research/star-search/
       "command": "python3",
       "args": ["/path/to/mcp_server.py"],
       "env": {
-        "STAR_SEARCH_API": "http://127.0.0.1:5000/v1/search"
+        "STAR_SEARCH_API": "http://127.0.0.1:<api-port>/v1/search"
       }
     }
   }
@@ -662,7 +662,7 @@ python3 mcp_server.py --transport http --port 8765
 ## 核心特性
 
 - **诚实答案** > 编造答案: LLM 看到 8 条搜索结果，**有具体数字才写**，**没数据就告诉用户查行情网站/官方源**
-- **DeepSeek-V4-Flash** 总结（免费 via new-api 62.234.39.247:8080）
+- **DeepSeek-V4-Flash** 总结（免费 via new-api <服务器IP>:<内部端口>）
 - **2-3s** 生成答案
 - **4-5 源** 末尾标出
 
@@ -968,4 +968,69 @@ LLM 用 DeepSeek-V4-Flash 训练得很准, 几乎不编造 [N] 序号:
 - 1 次只引用真实存在的 [N]
 - 不混淆源 (东方财富说的不会标成新浪)
 - 多源说同一事 → 引用最权威的 [N]
+
+
+---
+
+# v20 实战 35-46 总结 (2026-06-12 至 06-15)
+
+## v20.1 实战 35 速度优化 (6s → 0.2-1s)
+- playwright 4 引擎跳过 (拖 15-20s)
+- aiohttp 单引擎 4s timeout + 顶层 4s 强制截止
+- try/except 降级到缓存命中
+- 缓存 30min (query 归一化 + n_results bucket)
+- 实测: 缓存命中 0ms / 未命中 1-4s (搜) + 6-7s (答) = 7-8s
+
+## v20.2 实战 36 SSE 流式输出 (首字 < 1s)
+- 新端点 `POST /v1/search/stream` (不动老 `/v1/search`)
+- 5 事件: search_start / search_done / answer_chunk×N / answer_done / done
+- nginx `proxy_buffering off` + `proxy_read_timeout 60s` 必备
+- 前端 fetch + ReadableStream 解析 SSE 逐字显示
+- f-string 大坑: `{}` 空表达式报 SyntaxError, 改 `"event: done\ndata: {}\n\n"`
+
+## v20.3 实战 37 答案层提速
+- max_tokens 600 → 300 (GLM-4-Flash 46 tok/s × 300 = 6.5s 实际)
+- LLM_TIMEOUT 15s → 12s → 25s (复杂格式需要 25s buffer)
+- 实际 7-8s 跑通
+
+## v20.4 实战 38-39 多轮对话
+- api_server SearchRequest 加 `session_id` + `history: list`
+- answer.py `generate_answer(history)` 拼 prompt (`=== 之前的对话 ===\n用户: ...\n助手: ...\n---`)
+- 前端 localStorage 存 `chat:{session_id}:history` (最近 20 轮)
+- 左侧 session 栏 (切换/重命名/删除)
+- cache key 不含 history (命中率 30-50%)
+
+## v20.5 实战 40 终极稳定性 (杀 watchdog)
+- NRestarts 持续涨 + syslog 30-33s 周期 SIGKILL
+- 调试 4 步: detail.log (force=True) → uvicorn 覆盖 root logger → syslog 找元凶 → 找到 `bash /tmp/watchdog.sh` (6/3 部署遗留跑了 11 天)
+- 修: `kill -9 13296` + `rm /tmp/watchdog.sh /tmp/qs.sh`
+- 7 query 跑 NRestarts=0 稳定
+
+## v20.6 实战 41-43 学术/结构化/收藏
+- **学术/代码** (4 引擎 + 2 端点 + academic_code.py 独立模块): scholar / semantic_scholar / grep_app / sourcegraph → 实际只 Sourcegraph 可用 (GFW + 限流 + 反爬)
+- **结构化输出 4 格式**: `default` / `table` / `json` / `mermaid` — LLM 完全遵循
+- **Pydantic 避开 reserved name**: `format` 改 `fmt`
+- **新参数要全链路 grep**: `/v1/search` 加 fmt 但 `/v1/search/stream` 没加 → 6 调试
+- **cache key 必含变化因子**: 实战 42 cache key 不含 fmt → 4 格式命中同缓存
+- **历史/收藏 UI**: 顶栏 📚 + ⭐ 2 按钮 + 每结果 ⭐ 按钮 + 弹层 + localStorage
+
+## v20.7 实战 44-46 监控告警 + Prometheus + Grafana
+- **/metrics 端点**: 纯 Python 14 个指标 (无 prometheus_client 依赖)
+- **MetricsMiddleware**: 自动计 endpoint + 错误
+- **监控 service**: star-search-monitor.service (user systemd + linger) + 3 告警规则 + 5min 摘要
+- **Prometheus 2.54.1 + Grafana 11.2.0 + node-exporter 1.8.2** (docker compose 3 容器, 9090/3000/9100)
+- **8 个告警规则** (错误率/缓存/服务挂/P99/CPU/内存/磁盘)
+- **Grafana 11 panel dashboard** (QPS/缓存/时延/CPU/内存)
+- **公网 HTTPS**: prom.token-star.cn + grafana.token-star.cn (certbot + nginx 80/443 反代)
+- **DNSPod A 记录必备** + 腾讯云防火墙只开 22/80/443 (直接开 9090/3000 不行, 走 nginx 反代)
+
+## v20 通用教训 (实战 35-46 总结)
+- **不要假设"接了就能用"**: 实战 41 4 引擎只 1 个能用 (GFW + 限流 + 反爬)
+- **新参数要全链路 grep**: 实战 42 fmt 跨多个端点
+- **cache key 必含所有变化因子**: cache key 漏 fmt / history / mode 都会错乱
+- **Pydantic 避开 reserved name**: `format` 是 reserved, 改 `fmt`
+- **NRestarts 涨必查真凶**: 实战 40 watchdog 6/3 遗留 11 天误杀 39 次
+- **调试时 detail.log 必须可写**: uvicorn 覆盖 root logger → `force=True` 修
+- **docker 容器 mount data 目录**: `user:"0"` + chmod 777 解决 mmap 权限
+- **docker 镜像加速**: Docker Hub 直连 timeout → daemon.json 加 daemonocloud.io
 
