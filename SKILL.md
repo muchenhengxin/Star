@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.9 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控/i18n/MCP/语义搜索**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-50: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS + i18n 英文版 SKILL_EN.md 22KB + BM25 语义搜索 5ms 5/5 query 命中. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.14.1
+version: 20.15.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -549,7 +549,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.14.1** | 2026-06-15 | **实战 56：Mermaid/Table/JSON 前端渲染**（marked@9.1.6 + mermaid@10.9.1 + 4 fmt 端到端：default 文本 / table 表格 / mermaid 流程图 / json 代码块）|
+| **v20.15.0** | 2026-06-16 | **实战 55：用户系统**（手机号注册/登录 + HMAC token 12h + JSON users.json + quota 100/天 + 4 端点 /v1/auth/{register,login,me,quota} + Authorization Bearer quota check）|
 | v17.7.0 | 2026-06-04 | 答案缓存（236x speedup）+ 内联引用（Perplexity Mode 完整体验）|
 | v17.5.0 | 2026-06-04 | 4 类 Prompt 模板（finance/tech/news/general）|
 | v17.4.0 | 2026-06-04 | 多轮相关问题（3 个 followup chips）|
