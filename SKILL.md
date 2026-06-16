@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.9 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控/i18n/MCP/语义搜索**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-50: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS + i18n 英文版 SKILL_EN.md 22KB + BM25 语义搜索 5ms 5/5 query 命中. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.24.0
+version: 20.25.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -466,9 +466,9 @@ playwright install chromium  # 可选 (v20 实战 35 跳过)
 
 ## ⚠️ 已知陷阱（v20 实战 35-67 总结）
 
-### 🔥 v20.20-23 实战 62-66 AI 智能层 (犀牛硬反馈: "搜索没有智能化")
+### 🔥 v20.20-23 实战 62-66 AI 智能层 (用户硬反馈: "搜索没有智能化")
 
-**犀牛 14:49 原话**: "搜索没有能够智能化, 与 AI 搜索的定位, 还差距较大...需要有 LLM 在后面深度支持赋能啊, 没有用上啊"
+**用户 14:49 原话**: "搜索没有能够智能化, 与 AI 搜索的定位, 还差距较大, 与一般的搜索比起来也不行, 搜索能力完全不行啊。如果我第一次用, 作为用户, 就不会再用了啊。需要从识别、搜索、输出, 做一个深入复盘, 我们有大模型在后面深度支持赋能啊, 没有用上啊。"
 
 **核心教训**: 仅做"速度/稳定/格式"优化还不够, **必须把 LLM 深度嵌入到 query 理解/搜索/答案 3 个环节**。完整 5 实战 + 1 测试总结见 `references/ai-native-search-transformation.md`。
 
@@ -586,7 +586,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.24.0** | 2026-06-16 | **实战 68+69：brain context 串联 + entity_card 嵌入**（generate_answer 接 brain_ctx /v1/search 调 brain + 查 entity_card + 注入到 answer prompt + 响应返 brain_info + entity_card）|
+| **v20.25.0** | 2026-06-16 | **实战 70：多源交叉验证 + 可信度**（cross_verify.py 8.6KB：30+ 来源可信度词典 + 数字/URL/标题事实提取 + cross_verified + avg_credibility + consensus_score + 7 query 端到端 100% 跑通）|
 | v20.22.0 | 2026-06-16 | 实战 65: 智能重搜 (3轮+拆词+引擎扩展) |
 | v20.21.1 | 2026-06-16 | 实战 64: AI 答案层强约束 (entity+expected_info 8 条) |
 | v20.21.0 | 2026-06-16 | 实战 63: 多路并行搜索 (2变体+3引擎+智能排序) |
@@ -699,11 +699,11 @@ star-search/
 - **LLM 默认会"逃避"**: 必须强约束 prompt 禁"未能找到" (实战 64 验证)
 - **brain 分析和实际搜索要打通**: 实战 67 "今天" 引擎不读 brain → 需要传 recency
 - **远程测试中文用 cat 不用 head -c**: UTF-8 截断错位 (实战 67 踩坑)
-- **犀牛硬反馈: 速度/稳定优化不够, 必须 AI 智能化**: 实战 62-66 5 个实战从 5 分到 90 分
+- **用户硬反馈: 速度/稳定优化不够, 必须 AI 智能化**: 实战 62-66 5 个实战从 5 分到 90 分
 
 ## 实战 62-66 AI 智能层 (6/16, 4 小时彻底重做)
 
-犀牛 14:49 硬反馈"搜索没有智能化"后, 一次性做了 5 个实战重做 AI 智能层。详细架构/代码/评估见 `references/ai-native-search-transformation.md`。
+用户 14:49 硬反馈"搜索没有智能化"后, 一次性做了 5 个实战重做 AI 智能层。详细架构/代码/评估见 `references/ai-native-search-transformation.md`。
 
 **5 实战产出 (50KB 新代码)**:
 
