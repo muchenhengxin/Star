@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.9 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控/i18n/MCP/语义搜索**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-50: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS + i18n 英文版 SKILL_EN.md 22KB + BM25 语义搜索 5ms 5/5 query 命中. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.25.0
+version: 20.26.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -586,7 +586,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.25.0** | 2026-06-16 | **实战 70：多源交叉验证 + 可信度**（cross_verify.py 8.6KB：30+ 来源可信度词典 + 数字/URL/标题事实提取 + cross_verified + avg_credibility + consensus_score + 7 query 端到端 100% 跑通）|
+| **v20.26.0** | 2026-06-16 | **实战 71+72：多轮上下文 + 时效性**（super_brain 接 context 参数 / R3 "找它官网" 准推比亚迪官网 / recency 智能: 今天/最新/动态→day，本周→week，教程/官网→None / 6 query 100% 准）|
 | v20.22.0 | 2026-06-16 | 实战 65: 智能重搜 (3轮+拆词+引擎扩展) |
 | v20.21.1 | 2026-06-16 | 实战 64: AI 答案层强约束 (entity+expected_info 8 条) |
 | v20.21.0 | 2026-06-16 | 实战 63: 多路并行搜索 (2变体+3引擎+智能排序) |
