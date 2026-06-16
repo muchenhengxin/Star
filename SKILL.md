@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.9 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控/i18n/MCP/语义搜索**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-50: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS + i18n 英文版 SKILL_EN.md 22KB + BM25 语义搜索 5ms 5/5 query 命中. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.21.0
+version: 20.22.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -549,7 +549,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.21.0** | 2026-06-16 | **实战 63：多路并行搜索**（super_brain 推荐引擎 + 2 变体 + 3 引擎并行 + entity 匹配加分 50/拼音加分 30/域名加分 20 + 236ms 跑通 + 韭研公社 8 条全对 1 条真网址）|
+| **v20.22.0** | 2026-06-16 | **实战 65：智能重搜机制**（结果<3 触发重搜 3 轮 + 拆词重写 + 引擎扩展 + rounds/retries 记录 + 生僻 query 测 5.9s 跑 3 轮）|
 | v17.7.0 | 2026-06-04 | 答案缓存（236x speedup）+ 内联引用（Perplexity Mode 完整体验）|
 | v17.5.0 | 2026-06-04 | 4 类 Prompt 模板（finance/tech/news/general）|
 | v17.4.0 | 2026-06-04 | 多轮相关问题（3 个 followup chips）|
