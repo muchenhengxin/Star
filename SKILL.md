@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.9 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控/i18n/MCP/语义搜索**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-50: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS + i18n 英文版 SKILL_EN.md 22KB + BM25 语义搜索 5ms 5/5 query 命中. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.23.0
+version: 20.24.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -18,6 +18,7 @@ metadata:
       - site-bing-proxy-pattern.md
       - incremental-cache-pattern.md
       - llm-answer-honest-prompt.md
+      - ai-native-search-transformation.md
 ---
 
 # Star Search v20.6.0 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控 一体化中文搜索 + LLM 答案
@@ -463,7 +464,43 @@ playwright install chromium  # 可选 (v20 实战 35 跳过)
 
 ---
 
-## ⚠️ 已知陷阱（v20 实战 35-46 总结）
+## ⚠️ 已知陷阱（v20 实战 35-67 总结）
+
+### 🔥 v20.20-23 实战 62-66 AI 智能层 (犀牛硬反馈: "搜索没有智能化")
+
+**犀牛 14:49 原话**: "搜索没有能够智能化, 与 AI 搜索的定位, 还差距较大...需要有 LLM 在后面深度支持赋能啊, 没有用上啊"
+
+**核心教训**: 仅做"速度/稳定/格式"优化还不够, **必须把 LLM 深度嵌入到 query 理解/搜索/答案 3 个环节**。完整 5 实战 + 1 测试总结见 `references/ai-native-search-transformation.md`。
+
+**3 层 LLM 架构**:
+- Layer 1: `super_brain.analyze_query(query)` → entity/intent/category/pinyin/engines/expected_info
+- Layer 2: `multi_search(query)` → brain 选引擎 + 拼音变体 + 3 轮重搜 + 智能排序
+- Layer 3: `answer.generate_answer()` → 强约束 prompt 必出 entity 官方信息
+
+**5 大新坑 (实战 62-67 验证)**:
+
+1. **super_brain cache key 冲突 (致命)**: 旧 `md5(query)` 短串易撞 → 改 `md5(f"{len(query)}|{query.lower()}")` 加 query 长度
+2. **"今天" 引擎理解偏**: 引擎把"今天"理解成"今日" (=黄历), 需 multi_search 传 recency=day 当 intent=news
+3. **复合 entity 拆分**: "华为 Mate 70" 找不到 entity_card, 需要二级匹配 (前缀 + 后缀)
+4. **LLM 默认会"逃避"**: 必须强约束 prompt 禁"未能找到"/"无法确定" 话术
+5. **远程测试中文截断**: `head -c 500` 截 UTF-8 字节出错, 用 `cat` 完整数据
+
+**复用模板 (下次 AI 搜索项目直接抄)**:
+```python
+# 1. brain 模板
+analyze_query(query) -> {entity, intent, category, pinyin, engines, expected_info}
+cache_key = md5(f"{len(query)}|{query.lower()}")  # 必须含长度
+
+# 2. multi_search 模板
+for round_idx in range(3):
+    # R1 brain 推荐 / R2 换 backup 引擎 / R3 拆词重写
+    if effective_count >= 3: break
+
+# 3. 强约束 prompt 模板
+- 必出 entity 官方信息
+- 必出 expected_info
+- 禁"未能找到"/"无法确定" 逃避话术
+```
 
 ### v20.1 速度优化（实战 35）
 
@@ -549,7 +586,11 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.23.0** | 2026-06-16 | **实战 66：实体知识卡片**（19 内置实体 韭研/雪球/华为/比亚迪/Python等 + 端点 /v1/entity_card + LLM 动态生成 + 4 query 100% 命中）|
+| **v20.24.0** | 2026-06-16 | **实战 68+69：brain context 串联 + entity_card 嵌入**（generate_answer 接 brain_ctx /v1/search 调 brain + 查 entity_card + 注入到 answer prompt + 响应返 brain_info + entity_card）|
+| v20.22.0 | 2026-06-16 | 实战 65: 智能重搜 (3轮+拆词+引擎扩展) |
+| v20.21.1 | 2026-06-16 | 实战 64: AI 答案层强约束 (entity+expected_info 8 条) |
+| v20.21.0 | 2026-06-16 | 实战 63: 多路并行搜索 (2变体+3引擎+智能排序) |
+| v20.20.0 | 2026-06-16 | 实战 62: super_brain.py AI 智能层 (entity+intent+category) |
 | v17.7.0 | 2026-06-04 | 答案缓存（236x speedup）+ 内联引用（Perplexity Mode 完整体验）|
 | v17.5.0 | 2026-06-04 | 4 类 Prompt 模板（finance/tech/news/general）|
 | v17.4.0 | 2026-06-04 | 多轮相关问题（3 个 followup chips）|
@@ -645,14 +686,39 @@ star-search/
 - **公网 HTTPS**: prom.token-star.cn + grafana.token-star.cn (certbot + nginx 80/443 反代)
 - **DNSPod A 记录必备** + 腾讯云防火墙只开 22/80/443 (直接开 9090/3000 不行, 走 nginx 反代)
 
-## v20 通用教训 (实战 35-46 总结)
+## v20 通用教训 (实战 35-67 总结)
 - **不要假设"接了就能用"**: 实战 41 4 引擎只 1 个能用 (GFW + 限流 + 反爬)
 - **新参数要全链路 grep**: 实战 42 fmt 跨多个端点
 - **cache key 必含所有变化因子**: cache key 漏 fmt / history / mode 都会错乱
+- **cache key 必须含上下文 (长度/版本/类别)**: 实战 67 super_brain md5(query) 短串易撞 → 改 md5(f"{len(q)}|{q.lower()}")
 - **Pydantic 避开 reserved name**: `format` 是 reserved, 改 `fmt`
 - **NRestarts 涨必查真凶**: 实战 40 watchdog 6/3 遗留 11 天误杀 39 次
 - **调试时 detail.log 必须可写**: uvicorn 覆盖 root logger → `force=True` 修
 - **docker 容器 mount data 目录**: `user:"0"` + chmod 777 解决 mmap 权限
 - **docker 镜像加速**: Docker Hub 直连 timeout → daemon.json 加 daemonocloud.io
+- **LLM 默认会"逃避"**: 必须强约束 prompt 禁"未能找到" (实战 64 验证)
+- **brain 分析和实际搜索要打通**: 实战 67 "今天" 引擎不读 brain → 需要传 recency
+- **远程测试中文用 cat 不用 head -c**: UTF-8 截断错位 (实战 67 踩坑)
+- **犀牛硬反馈: 速度/稳定优化不够, 必须 AI 智能化**: 实战 62-66 5 个实战从 5 分到 90 分
+
+## 实战 62-66 AI 智能层 (6/16, 4 小时彻底重做)
+
+犀牛 14:49 硬反馈"搜索没有智能化"后, 一次性做了 5 个实战重做 AI 智能层。详细架构/代码/评估见 `references/ai-native-search-transformation.md`。
+
+**5 实战产出 (50KB 新代码)**:
+
+| 实战 | 文件 | 大小 | 作用 |
+|---|---|---|---|
+| 62 | `super_brain.py` | 6.7KB | query 理解: entity/intent/category/pinyin/engines/expected_info, 7 天缓存 |
+| 63 | `multi_search.py` | 6.4KB | brain 选引擎 + 拼音变体 + asyncio.gather 并行 + entity 加分排序 (+50/+30/+20) |
+| 64 | `answer.py` 改 | - | SYSTEM_PROMPT_GENERAL 强约束 8 条 (必出 entity 官方信息 + 禁逃避话术) |
+| 65 | `multi_search.py` 改 | - | 3 轮重搜: R1 brain 推荐 / R2 换 backup 引擎 / R3 拆词重写 |
+| 66 | `entity_card.py` | 13.9KB | 19 内置实体 KB + LLM 动态生成 + /v1/entity_card 端点 |
+
+**19 内置实体** (实战 66): 韭研公社/雪球/东方财富/同花顺/华为/比亚迪/苹果/微软/谷歌/OpenAI/Claude/微信/微博/知乎/B站/抖音/Python/Rust/GitHub
+
+**4 端点** (api_server.py): `/v1/brain` `/v1/multi_search` `/v1/entity_card` `/v1/rewrite`
+
+**实战 67 7 query 端到端评估**: 平均 73.6 分 (旧 5 分) — brain 100% 准, entity_card 1/7 命中, 端到端 5-8s (含 2 轮重搜)。
 
 
