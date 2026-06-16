@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.9 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控/i18n/MCP/语义搜索**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-50: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS + i18n 英文版 SKILL_EN.md 22KB + BM25 语义搜索 5ms 5/5 query 命中. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.10.0
+version: 20.11.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -276,7 +276,95 @@ async with aiohttp.ClientSession() as s:
 
 ---
 
-## ⚙️ 关键参数
+## 5. Plugins 商店集成（OpenAI GPT Actions + Anthropic Claude MCP）
+
+### 5.1 OpenAI GPT Actions（ChatGPT Custom GPT）
+
+**Auto-discover 端点**：`https://search.token-star.cn/.well-known/openapi.yaml`（OpenAPI 3.0 schema，11 个端点）
+
+**GPT 编辑器配置步骤**：
+
+1. 打开 [chatgpt.com](https://chatgpt.com) → Explore → Create a GPT
+2. Configure → Actions → Create new action
+3. Schema URL: `https://search.token-star.cn/.well-known/openapi.yaml`
+4. Privacy policy: `https://github.com/muchenhengxin/Star/blob/main/LICENSE`
+5. 保存
+
+**聊天示例**：
+```
+"用 web_search 搜比亚迪股价"
+"用 academicSearch 找 LLM 推理论文"
+"用 discover 给我整理 Python 学习时间线"
+"用 semanticSearch 找类似 'fastapi tutorial' 的结果"
+```
+
+**旧版 ChatGPT Plugins manifest**（`.well-known/ai-plugin.json`，向后兼容）—— 一些 ChatGPT 客户端仍支持。
+
+### 5.2 Anthropic Claude MCP
+
+**MCP server 注册**（Anthropic 官方 MCP registry）：
+
+```bash
+# 1. 部署 server (已就位): https://search.token-star.cn/mcp/sse
+# 2. 提交到 https://github.com/modelcontextprotocol/servers (PR)
+#    - 添加 entry 到 README.md servers table
+#    - 文件: servers/star-search.json (mcp-server.json 复制)
+# 3. Claude Desktop 自动从 registry discover (官方计划)
+```
+
+**MCP spec 文件**（`.well-known/mcp-server.json`，Anthropic 官方格式）—— 包含 4 tools 完整定义 + stdio/sse 双 transport + tags + 仓库链接。
+
+### 5.3 Cursor / Cline / Continue
+
+**MCP server 配置**（`~/.cursor/mcp.json` 或 settings）：
+
+```json
+{
+  "mcpServers": {
+    "star-search": {
+      "command": "/usr/bin/python3",
+      "args": ["/path/to/mcp_server.py"],
+      "env": {"STAR_SEARCH_API": "http://127.0.0.1:5000/v1/search"}
+    }
+  }
+}
+```
+
+**Cursor Chat 用法**：
+```
+"用 star-search 搜最新 AI 新闻"
+"用 web_search_finance 找今天 A 股"
+```
+
+### 5.4 11 个端点完整列表
+
+| 端点 | OpenAI operationId | MCP tool |
+|---|---|---|
+| `POST /v1/search` | `webSearch` | `web_search` |
+| `POST /v1/search/refresh` | `webSearchRefresh` | - |
+| `POST /v1/answer` | `generateAnswer` | - |
+| `POST /v1/scholar` | `academicSearch` | - |
+| `POST /v1/code` | `codeSearch` | - |
+| `POST /v1/semantic_search` | `semanticSearch` | - |
+| `POST /v1/discover` | `discover` | - |
+| `GET /v1/engines` | `listEngines` | `get_engines` |
+| `GET /v1/modes` | `listModes` | - |
+| `GET /v1/health` | `health` | - |
+| `SSE /mcp/sse` | - | `web_search_news` / `web_search_finance` |
+
+### 5.5 提交检查清单
+
+- [x] OpenAPI 3.0 schema (`.well-known/openapi.yaml`)
+- [x] ai-plugin.json (`.well-known/ai-plugin.json`)
+- [x] mcp-server.json (`.well-known/mcp-server.json`)
+- [ ] GPT Store 公开提交 (需 ChatGPT Plus 账号创建 + 公开)
+- [ ] MCP registry PR (modelcontextprotocol/servers)
+- [ ] Cursor directory PR (cursor.com/directory)
+- [ ] 提交后获取 install URL 加到 SKILL.md
+
+---
+
+## 📚 实战笔记（v20 实战 35-52）
 
 ### 搜索层
 
@@ -461,7 +549,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.10.0** | 2026-06-15 | **实战 51：Perplexity 探索发现**（3 mode: timeline 时间线 / comparison 多角度对比 / related 相关问题深挖 + 修 LLM 答案层真 key + subprocess 调独立 runner 解 uvicorn uvloop 冲突）|
+| **v20.11.0** | 2026-06-15 | **实战 52：OpenAI/Anthropic plugins 商店**（OpenAPI 3.0 schema for GPT Actions + ai-plugin.json for ChatGPT legacy + mcp-server.json for Anthropic MCP registry）|
 | v17.7.0 | 2026-06-04 | 答案缓存（236x speedup）+ 内联引用（Perplexity Mode 完整体验）|
 | v17.5.0 | 2026-06-04 | 4 类 Prompt 模板（finance/tech/news/general）|
 | v17.4.0 | 2026-06-04 | 多轮相关问题（3 个 followup chips）|
@@ -487,7 +575,9 @@ star-search/
 
 ---
 
-## 📚 实战笔记（v20 实战 35-51）
+## 📚 实战笔记（v20 实战 35-52）
+
+实战 52 P3-24 OpenAI/Anthropic plugins 商店（OpenAPI 3.0 schema for GPT Actions + ai-plugin.json for ChatGPT legacy + mcp-server.json for Anthropic MCP registry，3 个 manifest 在 `.well-known/` 目录）。
 
 实战 51 P3-23 Perplexity 探索发现（3 mode: timeline/comparison/related + 修 LLM 答案层真 key + subprocess runner 解 uvloop 冲突）。
 
