@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.33 — 意图理解 94.4%/59.3% + KB 180 实体 + Cloudflare Bot 保护应对**! star-search 是标准 Model Context Protocol server (4 tools) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-87: 速度 6s→0.2s + SSE 流式 + 多轮 + 4 格式 + 监控 + i18n + 语义搜索 + **AI 智能层实战 62-86** (super_brain + multi_search + entity_card + cross_verify + intent_strategy) + **Cloudflare Bot 保护实战 87** (Bot Fight Mode 阻塞 skill/API, 必须 WAF 白名单). 16 引擎 + 智能意图识别 (4 batch 108 query 测试) + 5 实战核心方法论."
-version: 20.33.0
+version: 20.34.0
 author: Hermes Agent
 license: MIT
 metadata:
