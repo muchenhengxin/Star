@@ -38,7 +38,7 @@ metadata:
 
 **3 选 1 修复方案**:
 1. **A. 关闭 Bot Fight Mode** (推荐, 5min) — dash.cloudflare.com → token-star.cn → Security → Bots → Bot Fight Mode Off
-2. **B. WAF Custom Rule 白名单** (推荐, 永久) — 加规则: `ip.src eq 62.234.39.247` 或 `http.user_agent contains "Star-Search-Skill"` → Skip: Super Bot Fight Mode
+2. **B. WAF Custom Rule 白名单** (推荐, 永久) — 加规则: `ip.src eq <server_ip>` 或 `http.user_agent contains "Star-Search-Skill"` → Skip: Super Bot Fight Mode
 3. **C. 改 User-Agent + Headers** (2min, 不彻底) — `User-Agent: Mozilla/5.0 ...` + `Accept-Language: zh-CN`
 
 **API Token 权限要求** (用 A/B 时): 必须有 `Zone WAF Edit` + `Zone Settings Edit` + `Zone Bot Management Edit`。**Token 默认 `API Tokens Write` 权限不够** (实战 87 验证)。
