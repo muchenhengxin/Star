@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.9 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控/i18n/MCP/语义搜索**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-50: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS + i18n 英文版 SKILL_EN.md 22KB + BM25 语义搜索 5ms 5/5 query 命中. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.28.0
+version: 20.29.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -586,7 +586,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.28.0** | 2026-06-17 | **实战 74：无结果降级 + 引擎白名单**（playwright 引擎 baidu/sogou/360/weixin/taobao 全降级到 bing_www / 答案层加'无结果降级' prompt：公司→企查查/天眼查/启信宝/人名→LinkedIn/微博/产品→官网/京东天猫/学术→Scholar/知网/arXiv）|
+| **v20.29.0** | 2026-06-17 | **实战 75+76：意图→搜索策略 + 50 实体 KB**（intent_strategy.py 7KB：8 类型识别 + 7 源类 site: 限制 + multi_search 集成 + 模糊匹配 entity_card / KB 19→50+ 实体 阿里/腾讯/字节/百度/京东/美团/拼多多/宁德/小米/蔚来/小鹏/理想/特斯拉/NVDA/AMD/Intel/Copilot/Cursor/MJ/SD/HF/Meta/TikTok/X/Reddit/YT/LinkedIn/DeepSeek/智谱/Kimi/豆包/文心）|
 | v20.22.0 | 2026-06-16 | 实战 65: 智能重搜 (3轮+拆词+引擎扩展) |
 | v20.21.1 | 2026-06-16 | 实战 64: AI 答案层强约束 (entity+expected_info 8 条) |
 | v20.21.0 | 2026-06-16 | 实战 63: 多路并行搜索 (2变体+3引擎+智能排序) |
