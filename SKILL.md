@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.9 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控/i18n/MCP/语义搜索**! star-search 是标准 Model Context Protocol server (4 tools: web_search/web_search_news/web_search_finance/get_engines) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-50: 速度优化 6s→0.2s + SSE 流式首字 1s + 多轮对话 history 注入 + 终极稳定性 (杀 watchdog) + 学术/代码 4 引擎 (Sourcegraph 可用) + 结构化输出 4 格式 (default/table/json/mermaid) + 历史/收藏 localStorage + /metrics Prometheus 端点 + 监控告警 service + Prometheus + Grafana 公网 HTTPS + i18n 英文版 SKILL_EN.md 22KB + BM25 语义搜索 5ms 5/5 query 命中. 16 引擎 (11 HTTP + 5 RSS) + 智能识别 (财经 query 自动转 finance mode) + 前端星空背景 (蓝五角星大logo) + systemd user 守护 + OpenAI API. 目标: 赶超百度搜索的免费中文搜索引擎 + LLM agent 实时事实层 (免费中文版 Tavily/Perplexity)."
-version: 20.31.0
+version: 20.32.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -20,6 +20,7 @@ metadata:
       - llm-answer-honest-prompt.md
       - ai-native-search-transformation.md
       - intent-understanding-test-bench.md
+      - intent-detection-rule-priority.md
 ---
 
 # Star Search v20.6.0 — 速度/流式/多轮/稳定/学术/结构化/收藏/监控 一体化中文搜索 + LLM 答案
@@ -490,7 +491,7 @@ playwright install chromium  # 可选 (v20 实战 35 跳过)
 ```python
 # 1. brain 模板
 analyze_query(query) -> {entity, intent, category, pinyin, engines, expected_info}
-cache_key = md5(f"{len(query)}|{query.lower()}")  # 必须含长度
+cache_key = md5(f"{len(query)}|{query.lower()}")  # 必须含长度防撞
 
 # 2. multi_search 模板
 for round_idx in range(3):
@@ -502,6 +503,8 @@ for round_idx in range(3):
 - 必出 expected_info
 - 禁"未能找到"/"无法确定" 逃避话术
 ```
+
+**detect_entity_type 17 规则优先级** — **规则顺序决定一切**。实战 78 调试 8 轮才到 10/10 (从 26/40 → 40/40)。完整优先级 + 5 大易踩坑见 `references/intent-detection-rule-priority.md`。口诀: **自述 → 模式 → intent → fallback**, 段内 academic_set 优先 company_hint。
 
 ### v20.1 速度优化（实战 35）
 
@@ -587,7 +590,7 @@ star-search/
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.31.0** | 2026-06-17 | **实战 79+80+81：KB 扩展 + 无结果建议 + 真网址强优先**（BUILTIN_KB_EXTRA 13 entity: 马斯克/埃隆马斯克/LLM/5G/GPT/GPT-4/GPT-4o/o1/Claude/Transformer/RAG/AI / answer.py 强约束 inject KB 网址到 prompt / api_server 传 entity_card_url / 公网 5 query 100% 引用 KB 网址）|
+| **v20.32.0** | 2026-06-17 | **实战 85：KB 扩展到 160+ 实体**（BUILTIN_KB_EXTRA2 90+ entity: 15 人物/15 公司/10 AI 产品/10 概念/10 游戏动漫/10 食物饮料/10 地点/10 汽车 / _build_kb_hint 动态合并 EXTRA+EXTRA2 / 4 批 108 query 测试 BRAIN 87.9%→94.4% STRAT 48.6%→56.5%）|
 | v20.28.0 | 2026-06-17 | 实战 74: 无结果降级 (公司→企查查) + 引擎白名单 |
 | v20.27.0 | 2026-06-16 | 实战 73: 前端 UI 集成 (brain 徽章+entity 卡片+cv) |
 | v20.26.0 | 2026-06-16 | 实战 71+72: 多轮上下文 + recency 智能 |
