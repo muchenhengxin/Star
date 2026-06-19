@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.33 — 意图理解 94.4%/59.3% + KB 180 实体 + Cloudflare Bot 保护应对**! star-search 是标准 Model Context Protocol server (4 tools) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-87: 速度 6s→0.2s + SSE 流式 + 多轮 + 4 格式 + 监控 + i18n + 语义搜索 + **AI 智能层实战 62-86** (super_brain + multi_search + entity_card + cross_verify + intent_strategy) + **Cloudflare Bot 保护实战 87** (Bot Fight Mode 阻塞 skill/API, 必须 WAF 白名单). 16 引擎 + 智能意图识别 (4 batch 108 query 测试) + 5 实战核心方法论."
-version: 20.38.0
+version: 20.39.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -54,7 +54,7 @@ metadata:
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.38.0** | 2026-06-19 | **实战 98：真接东财 API**（eastmoney_spider.py 4.5KB + push2.eastmoney.com/api/qt/stock/get secid 推导 + 5 min TTL 缓存 + /v1/realtime/quote 改 eastmoney_spider + 答案层注入实时价/涨跌幅 / 美股 AAPL 拿到 2980.1 元 + 0.7%, A 股非交易时段 21:00 退到 fallback 链接） |
+| **v20.39.0** | 2026-06-19 | **实战 99：答案层精简 + 加密货币 fallback**（answer.py 删 "实时股价请查询东方财富/新浪财经..." 冗余 → "实时价格已附在答案末尾" / eastmoney_spider CRYPTO 走 TradingView+火币+非小号 3 链接 fallback / 公网 3 query 验证 答案更简洁） |
 | v20.33.0 | 2026-06-17 | 实战 78+79-81+85+86 意图理解 + 实战 87 Cloudflare 应对 |
 | v20.32.0 | 2026-06-17 | 实战 85: KB 160+ 实体 (BRAIN 94.4%/STRAT 56.5%) |
 
