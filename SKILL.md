@@ -1,7 +1,7 @@
 ---
 name: star-search
 description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.33 — 意图理解 94.4%/59.3% + KB 180 实体 + Cloudflare Bot 保护应对**! star-search 是标准 Model Context Protocol server (4 tools) 给 Claude Desktop/Cursor/Hermes 等 LLM agent 调用. 公网 HTTP/SSE: https://search.token-star.cn/mcp/sse . v20 实战 35-87: 速度 6s→0.2s + SSE 流式 + 多轮 + 4 格式 + 监控 + i18n + 语义搜索 + **AI 智能层实战 62-86** (super_brain + multi_search + entity_card + cross_verify + intent_strategy) + **Cloudflare Bot 保护实战 87** (Bot Fight Mode 阻塞 skill/API, 必须 WAF 白名单). 16 引擎 + 智能意图识别 (4 batch 108 query 测试) + 5 实战核心方法论."
-version: 20.34.0
+version: 20.35.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -53,7 +53,8 @@ metadata:
 
 | 版本 | 日期 | 主要变更 |
 |---|---|---|
-| **v20.33.0** | 2026-06-17 | **实战 78+79-81+85+86 意图理解 + 实战 87 Cloudflare 应对**（detect_entity_type 17 规则 / KB 180 实体 / 学术类 query→academic 规则 / 4 批 108 query 回归 BRAIN 87.9%→94.4% STRAT 48.6%→59.3% / **Cloudflare Bot Fight Mode 阻塞 skill/API** — 必须 CF 后台加 WAF Custom Rule 白名单 UA/IP 或关 Bot Fight Mode） |
+| **v20.35.0** | 2026-06-19 | **实战 91+92+95：STRAT 边界 + 4 维来源评分**（实战 91: 极短 query + "X 在哪/创始人"→person / 实战 92: 对比表实战 64+81 已实现 / 实战 95: cross_verify 4 维 (domain 30% + authority 30% + time 25% + lang 15%) + SOURCE_AUTHORITY 50+ E-E-A-T 词典 + time_decay 近 30 天 1.0 → 3+ 年 0.4 + language_bonus 中文 1.0/英文 0.85） |
+| v20.33.0 | 2026-06-17 | 实战 78+79-81+85+86 意图理解 + 实战 87 Cloudflare 应对 |
 | v20.32.0 | 2026-06-17 | 实战 85: KB 160+ 实体 (BRAIN 94.4%/STRAT 56.5%) |
 
 [完整 v20.6 - v20.27 历史及 v16-v17 章节见 references/v16-v17-legacy-archive.md]
