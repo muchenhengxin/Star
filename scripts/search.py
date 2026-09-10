@@ -313,6 +313,43 @@ def _parse_bing_http(html, engine='bing_http'):
         _classify(r); results.append(r)
     return results
 
+def _parse_toutiao(html):
+    """解析头条搜索结果 (so.toutiao.com)
+    
+    头条搜索是 Next.js SPA - HTTP 抓的 HTML 不完整
+    退化为: 提取 HTML 中的真实 http(s) 链接作为占位
+    推荐用 Playwright 模式 (PW 引擎 'toutiao' 已是 site:bing 代理)
+    """
+    results = []
+    if not BeautifulSoup:
+        return results
+    soup = BeautifulSoup(html, 'lxml')
+    seen = set()
+    for a in soup.select("a[href^='http']")[:30]:
+        href = a.get('href', '')
+        # 过滤头条站内 + 短链
+        if 'toutiao.com' in href or 'javascript' in href:
+            continue
+        if href in seen:
+            continue
+        title = a.get_text(strip=True)
+        if not title or len(title) < 5:
+            continue
+        seen.add(href)
+        r = dict(
+            title=title[:80],
+            url=href,
+            summary='头条搜索结果 (需 Playwright 才能完整加载)',
+            date=_extract_date(title),
+            engine='toutiao_real',
+            url_type='direct',
+        )
+        _classify(r)
+        results.append(r)
+        if len(results) >= 10:
+            break
+    return results
+
 def _parse_bing_cn(html):
     """解析Bing中国版搜索结果"""
     return _parse_bing_http(html, engine='bing_cn')
@@ -368,6 +405,8 @@ HTTP_PARSERS = {
     'bing_cn': _parse_bing_cn,
     'bing_http': _parse_bing_http,
     'github_issues': _parse_github_issues,
+    '360': lambda html: _parse_360(html),  # v20.43: 360 HTTP 引擎 (延迟绑定)
+    'toutiao_real': lambda html: _parse_toutiao(html),  # v20.43: 头条搜索 (延迟绑定)
     # v15: site: 代理复用 bing_cn 解析器（HTML 结构相同）
     'toutiao': _parse_bing_cn,
     'zhihu': _parse_bing_cn,
@@ -846,7 +885,7 @@ def _has_chinese(text):
     return bool(_CJK_PAT.search(text))
 
 # 引擎组
-CN_ENGINES = ['sogou', 'baidu', '360', 'weixin', 'bing_cn']
+CN_ENGINES = ['sogou', 'baidu', '360', 'weixin', 'bing_cn', 'toutiao_real']  # v20.43: toutiao_real HTTP 引擎
 ALL_ENGINES = CN_ENGINES + ['bing_http', 'github_issues']
 # v16.1: global mode 中文 query 走 bing_cn+bing_http 双源，英文 query 走纯国际
 # 用 _pick_global_engines() 在 search_async 里按 query 动态选择
