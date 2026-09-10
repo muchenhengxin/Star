@@ -1,7 +1,7 @@
 ---
 name: star-search-en
 description: "Comprehensive web search + LLM-answer engine. Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check A股/finance/tech news. **v20.42 - LangChain + Dify + 5-min install**: LangChain Tool adapter, Dify plugin, install.sh, .env.example, 5-minute quick start. **v20.40 base**: STRAT 56.5%→74.1% + automatic fetch_content + end-to-end pipeline! star-search is a standard Model Context Protocol server (4 tools) callable by Claude Desktop / Cursor / Hermes. Public HTTP/SSE: https://search.<service-domain>/mcp/sse . v20 features (v20.35-102): speed optimization 6s→0.2s + SSE streaming + multi-turn dialogue + 16 engines (HTTP/Playwright/RSS) + intelligent intent recognition (4 batch 108 query tests) + AI smart layer (super_brain + multi_search + entity_card + cross_verify + intent_strategy) + Cloudflare Bot protection + **v20.40 end-to-end pipeline** (4 stages: understand→search→integrate→output with full LLM participation). Goal: free Chinese alternative to Baidu search + LLM agent real-time fact layer (free Chinese version of Tavily/Perplexity)."
-version: 20.42.0
+version: 20.43.0
 author: Hermes Agent
 license: MIT
 metadata:
