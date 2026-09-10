@@ -1,7 +1,7 @@
 ---
 name: star-search
-description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check finance / tech news. **v20.41 - English coverage + open scholarly sources**: pure-English queries auto-route to the international Bing HTTP backend; the answer layer now ships with a fifth dedicated English prompt; and a keyless academic merge pulls from OpenAlex and CrossRef when the query is academic. The public service exposes standard MCP (4 tools) plus JSON-RPC and SSE. v20 series highlights: sub-second SSE streaming, multi-turn dialog, 4 output formats, Prometheus monitoring, semantic search, AI orchestration layer (intent classification, entity card, cross-source verification), bot-protection workarounds, and a 4-stage end-to-end pipeline that defaults to LLM answer + auto-fetched snippets. 16 plus engines, intent understanding, and observable per-call metrics."
-version: 20.41.0
+description: "Use when asked to search the web, find online information, research topics, get news, look up Chinese content, or check finance / tech news. **v20.42 - LangChain + Dify + 5 分钟安装体验**: 新增 LangChain Tool 适配器 (`integrations/langchain/star_search_tool.py`) + Dify plugin (`integrations/dify/manifest.yaml`), 一键安装脚本 `install.sh`, `.env.example` 模板, 5 分钟快速开始. **v20.41 基础**: English coverage + open scholarly sources (pure-English queries auto-route to Bing HTTP backend; OpenAlex + CrossRef merge). 16 plus engines, intent understanding, observable per-call metrics. The public service exposes standard MCP (4 tools) plus JSON-RPC and SSE. v20 series highlights: sub-second SSE streaming, multi-turn dialog, 4 output formats, Prometheus monitoring, semantic search, AI orchestration layer (intent classification, entity card, cross-source verification), bot-protection workarounds, and a 4-stage end-to-end pipeline that defaults to LLM answer + auto-fetched snippets. 16 plus engines, intent understanding, and observable per-call metrics."
+version: 20.42.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -337,16 +337,15 @@ with ThreadPoolExecutor(max_workers=8) as ex: results = list(ex.map(test, ALL))
 
 #### 经验 1: server 上跑测试 (mac 本地数据不可信)
 
-`super_brain.py` 读 `/home/ubuntu/star-search/.env` (server 路径), mac 上不存在 → LLM_API_KEY 空 → `_call_llm` 静默失败 → 全 fallback info。**永远在 server 上跑 test_intent_108.py**, mac 上跑等于浪费 LLM quota。
+`super_brain.py` 读 `<install-dir>/.env` (server 路径), mac 上不存在 → LLM_API_KEY 空 → `_call_llm` 静默失败 → 全 fallback info。**永远在 server 上跑 test_intent_108.py**, mac 上跑等于浪费 LLM quota。
 
 #### 经验 2: server 文件同步通道 (root 写权限问题)
 
 server 上文件属主是 root, scp 直接覆盖失败。3 步通道:
 ```bash
 scp file.py vm-ubuntu:/tmp/file_new.py
-ssh vm-ubuntu "echo heng0311 | sudo -S cp /tmp/file_new.py /home/ubuntu/star-search/scripts/file.py && \
-  echo heng0311 | sudo -S chown root:root /home/ubuntu/star-search/scripts/file.py && \
-  echo heng0311 | sudo -S chmod 755 /home/ubuntu/star-search/scripts/file.py"
+# 推荐: 把 server 文件属主改成 ubuntu 用户 (sudo chown -R ubuntu:ubuntu <install-dir>),
+# 这样 scp 直接覆盖即可, 不需要 sudo 步骤
 ```
 
 `~/.ssh/config` 加 vm-ubuntu alias (用 <ssh-key>) 可避免每次输密钥。
@@ -409,7 +408,7 @@ python3 search.py "Python 教程" --engine bing_cn --mode dev --fetch 3
 
 ### v20.101 Bug fix: sqlite locked
 
-`lsof /home/ubuntu/star-search/scripts/.search_cache.sqlite` → 找到僵尸 PID → `kill -9`
+`lsof <install-dir>/scripts/.search_cache.sqlite` → 找到僵尸 PID → `kill -9`
 
 完整测试数据 + 10 URL benchmark + 16 条新规则见 `references/v20-40-intent-strat-rule-pitfalls.md`。
 
@@ -523,7 +522,7 @@ api_server 调 `analyze_query(query, use_cache=True, context=history_ctx)` —�
 - `Restart=on-failure` (只在真崩时重启)
 - `RestartSec=15` (足够时间端口释放)
 - 不加 `ExecStartPre=sleep 3` (避免干扰 restart cycle)
-- `StandardOutput=append:/home/ubuntu/.../logs/stdout.log` (ubuntu 用户可写)
+- `StandardOutput=append:<install-dir>/logs/stdout.log` (ubuntu 用户可写)
 
 #### v20.102 后续方向 (差 5.9pp 到 80% STRAT)
 
