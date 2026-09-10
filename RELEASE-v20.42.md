@@ -1,9 +1,47 @@
+# v20.42 — 安装体验 + 集成优化 (2026-09-10)
+
+## 🎉 新增
+
+- **integrations/langchain/star_search_tool.py** — LangChain Tool 适配器，支持 OpenAI 兼容 agent
+- **integrations/dify/manifest.yaml** + **star_search.py** — Dify plugin manifest
+- **install.sh** — 一键安装脚本 (Python deps + .env + systemd)
+- **.env.example** — 配置模板 (LLM_API_KEY / SEMANTIC_SCHOLAR_API_KEY / PORT)
+
+## 📝 改进
+
+- README.md 完全重写（5 分钟快速开始 + 三种安装方式 + 16 引擎列表）
+- SKILL.md / SKILL_EN.md 隐私清理：移除 heng0311 密码泄漏、具体 server 路径占位符化、删除 sudo 命令教程
+
+## 🐛 修复
+
+- `references/实战102-end-to-end-pipeline-fix.md` 非 ASCII 字符编码错误（GitHub push 时跳过该文件）
+
+## 📊 数据
+
+- **clawhub**: versions 55 → 56, downloads 2204 → 2207
+- **Server**: v20.40 → v20.41 同步完成 + 测试环境清理
+- **GitHub**: README v16.0 → v20.42, RELEASE-v16.2.md 已删除, RELEASE-v20.42.md 新增
+
+---
+
+## 安装
+
+```bash
+# 一键安装
+bash install.sh
+
+# 或用 clawhub
+clawhub install star-search
+```
+
+---
+
 # star-search — 16 引擎中文 AI 搜索 + LLM 答案层
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/muchenhengxin/Star)
 [![clawhub](https://img.shields.io/badge/clawhub-install-orange)](https://clawhub.ai/skill/star-search)
-[![Version](https://img.shields.io/badge/version-20.41-blue)](https://clawhub.ai/skill/star-search)
+[![Version](https://img.shields.io/badge/version-20.42-blue)](https://clawhub.ai/skill/star-search)
 
 > **免费中文搜索 API · 16 引擎混动 · 智能意图识别 · LLM 答案层 · MCP 协议**
 
