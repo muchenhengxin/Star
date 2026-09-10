@@ -1,11 +1,11 @@
-# star-search — 16 引擎中文 AI 搜索 + LLM 答案层
+# star-search — 20.42 引擎中文 AI 搜索 + LLM 答案层
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/muchenhengxin/Star)
 [![clawhub](https://img.shields.io/badge/clawhub-install-orange)](https://clawhub.ai/skill/star-search)
 [![Version](https://img.shields.io/badge/version-20.42-blue)](https://clawhub.ai/skill/star-search)
 
-> **免费中文搜索 API · 16 引擎混动 · 智能意图识别 · LLM 答案层 · MCP 协议**
+> **免费中文搜索 API · 20.42 引擎混动 · 智能意图识别 · LLM 答案层 · MCP 协议**
 
 为 AI Agent 提供实时中文搜索能力。对标 Tavily / Perplexity / Exa，**中文场景唯一可比产品**。
 
